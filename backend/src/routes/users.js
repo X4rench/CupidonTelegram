@@ -90,7 +90,12 @@ router.put('/me', (req, res) => {
 
 // ── GET /api/v1/users/subscription ───────────────────────────────────────────
 router.get('/subscription', (req, res) => {
-  const user = db.get('SELECT * FROM users WHERE telegram_user_id = ?', req.tgUser.id);
+  // Auto-upsert на случай race с /me
+  let user = db.get('SELECT * FROM users WHERE telegram_user_id = ?', req.tgUser.id);
+  if (!user) {
+    upsertUserFromInitData(req.tgUser, req.startParam);
+    user = db.get('SELECT * FROM users WHERE telegram_user_id = ?', req.tgUser.id);
+  }
   if (!user) return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
 
   const sub = getActiveSubscription(req.tgUser.id);
@@ -104,7 +109,13 @@ router.get('/subscription', (req, res) => {
 
 // ── GET /api/v1/users/stats ──────────────────────────────────────────────────
 router.get('/stats', (req, res) => {
-  const user = db.get('SELECT * FROM users WHERE telegram_user_id = ?', req.tgUser.id);
+  // Auto-upsert: если /stats пришёл раньше /me (race condition на параллельных
+  // запросах с фронта), создаём юзера из initData. Иначе фронт получит 404.
+  let user = db.get('SELECT * FROM users WHERE telegram_user_id = ?', req.tgUser.id);
+  if (!user) {
+    upsertUserFromInitData(req.tgUser, req.startParam);
+    user = db.get('SELECT * FROM users WHERE telegram_user_id = ?', req.tgUser.id);
+  }
   if (!user) return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
 
   const analysisCount = db.get('SELECT COUNT(*) as c FROM analysis_sessions WHERE telegram_user_id = ?', req.tgUser.id).c;
