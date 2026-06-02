@@ -60,37 +60,56 @@ function parseInitData(raw) {
  *   match expected === hash
  */
 function verifyInitDataHmac(rawInitData, botToken) {
-  const params = new URLSearchParams(rawInitData);
-  const hash = params.get('hash');
+  // КРИТИЧНО: парсим raw initData ВРУЧНУЮ без URL-decode значений!
+  // По спеке TG (https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app)
+  // в data_check_string значения должны идти EXACTLY как в raw initData (URL-encoded).
+  // URLSearchParams автоматически делает decode на .get()/.entries() — это ломает HMAC,
+  // потому что TG считает HMAC от URL-encoded строки user=%7B%22id%22%3A...%7D, а мы декодим
+  // её в user={"id":...} → байты другие → hash не сходится. Типичная ловушка.
+  const pairs = String(rawInitData).split('&');
+  let hash = null;
+  const kept = [];
+  for (const pair of pairs) {
+    const eq = pair.indexOf('=');
+    if (eq < 0) continue;
+    const key = pair.slice(0, eq);
+    const val = pair.slice(eq + 1);
+    if (key === 'hash') {
+      hash = val;
+    } else if (key === 'signature') {
+      // signature не участвует в HMAC — TG добавил это поле для Stars/Premium
+      continue;
+    } else {
+      kept.push(`${key}=${val}`);
+    }
+  }
   if (!hash) {
-    console.warn('[auth-debug] no hash in initData; keys:', [...params.keys()].join(','));
+    console.warn('[auth-debug] no hash in initData; pairs:', pairs.length);
     return false;
   }
-  params.delete('hash');
-  // signature — не часть проверки, удаляем если есть (TDesktop иногда шлёт)
-  params.delete('signature');
 
-  const dataCheckArr = [];
-  for (const [k, v] of params.entries()) dataCheckArr.push(`${k}=${v}`);
-  dataCheckArr.sort();
-  const dataCheckString = dataCheckArr.join('\n');
+  kept.sort();
+  const dataCheckString = kept.join('\n');
 
   const secretKey = createHmac('sha256', 'WebAppData').update(botToken).digest();
   const expected = createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
 
+  // hash в raw initData — это hex, без URL-encoding (но decodeURIComponent безопасен)
+  let hashDecoded;
+  try { hashDecoded = decodeURIComponent(hash); }
+  catch (_) { hashDecoded = hash; }
+
   const a = Buffer.from(expected, 'hex');
-  const b = Buffer.from(String(hash), 'hex');
+  const b = Buffer.from(hashDecoded, 'hex');
   const ok = (a.length === b.length) && (() => { try { return timingSafeEqual(a, b); } catch (_) { return false; } })();
 
   if (!ok) {
-    // DEBUG: при FAILED HMAC логируем структуру (без PII значений) —
-    // помогает понять появилось ли в initData новое поле, или токен не тот.
-    const keys = [...params.keys()].sort().join(',');
+    const keys = kept.map(p => p.slice(0, p.indexOf('='))).sort().join(',');
     console.warn('[auth-debug] HMAC mismatch',
       'keys=' + keys,
       'dcs_len=' + dataCheckString.length,
       'expected_prefix=' + expected.slice(0, 12),
-      'got_prefix=' + String(hash).slice(0, 12),
+      'got_prefix=' + String(hashDecoded).slice(0, 12),
       'token_prefix=' + String(botToken).slice(0, 12),
       'raw_len=' + rawInitData.length,
     );

@@ -27,6 +27,9 @@ const router = Router();
 const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
 const MINIAPP_URL    = process.env.MINIAPP_URL || 'https://t.me/your_bot_username/app';
 const BOT_USERNAME   = process.env.BOT_USERNAME || 'your_bot';
+// Для inline button web_app — нужен URL самого Mini App (HTTPS), НЕ t.me-ссылка.
+// TG отклоняет BUTTON_URL_INVALID если в web_app.url стоит t.me/...
+const WEB_APP_URL    = process.env.PUBLIC_BASE_URL || 'https://cupidonai.ru';
 
 const PLAN_DURATION_DAYS = {
   basic:    30,
@@ -112,7 +115,7 @@ async function handleMessage(msg) {
     await sendMessage(chatId, greeting, {
       reply_markup: {
         inline_keyboard: [[
-          { text: 'Открыть Купидон', web_app: { url: MINIAPP_URL } },
+          { text: 'Открыть Купидон', web_app: { url: WEB_APP_URL } },
         ]],
       },
     });
@@ -138,7 +141,7 @@ async function handleMessage(msg) {
       {
         reply_markup: {
           inline_keyboard: [[
-            { text: 'Открыть Купидон', web_app: { url: MINIAPP_URL } },
+            { text: 'Открыть Купидон', web_app: { url: WEB_APP_URL } },
           ]],
         },
       },
@@ -152,7 +155,7 @@ async function handleMessage(msg) {
     {
       reply_markup: {
         inline_keyboard: [[
-          { text: 'Открыть Купидон', web_app: { url: MINIAPP_URL } },
+          { text: 'Открыть Купидон', web_app: { url: WEB_APP_URL } },
         ]],
       },
     },
@@ -268,7 +271,7 @@ async function handleSuccessfulPayment(msg) {
       {
         reply_markup: {
           inline_keyboard: [[
-            { text: 'Открыть Купидон', web_app: { url: MINIAPP_URL } },
+            { text: 'Открыть Купидон', web_app: { url: WEB_APP_URL } },
           ]],
         },
       },
