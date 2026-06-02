@@ -45,7 +45,7 @@ export function FirstMessageScreen() {
       const res = await generateFirstMessage({
         girlName: girlName.trim() || undefined,
         tags,
-        profileText: profile.trim() || undefined,
+        profileText: profile.trim(),
       });
       const msgs: string[] = Array.isArray((res as any).messages)
         ? (res as any).messages.map((m: any) => typeof m === 'string' ? m : (m?.text || ''))
