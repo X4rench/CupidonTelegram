@@ -24,8 +24,16 @@ import { createHmac, timingSafeEqual } from 'crypto';
 // поэтому 24 часа — баланс между UX и безопасностью.
 const TTL_SEC = parseInt(process.env.INITDATA_TTL_SEC, 10) || 60 * 60 * 24;
 
-const BOT_TOKEN  = process.env.BOT_TOKEN;
+// TRIM — критично для HMAC. Если .env сохранён с CRLF (Windows),
+// dotenv может оставить \r в конце. HMAC от token+\r ≠ HMAC от token → INVALID_HMAC.
+const BOT_TOKEN  = (process.env.BOT_TOKEN || '').trim();
 const DEV_BYPASS = process.env.DEV_BYPASS_INITDATA === '1' && process.env.NODE_ENV !== 'production';
+
+// Sanity-проверка токена при старте — что мы реально считаем
+if (BOT_TOKEN) {
+  const last = BOT_TOKEN.charCodeAt(BOT_TOKEN.length - 1);
+  console.log(`[auth] BOT_TOKEN len=${BOT_TOKEN.length} lastCharCode=${last} (expect printable ASCII)`);
+}
 
 // Sanity warning — продакшен без BOT_TOKEN это критично.
 if (process.env.NODE_ENV === 'production' && !BOT_TOKEN) {
@@ -105,14 +113,21 @@ function verifyInitDataHmac(rawInitData, botToken) {
 
   if (!ok) {
     const keys = kept.map(p => p.slice(0, p.indexOf('='))).sort().join(',');
+    const tokenLen = String(botToken).length;
+    const tokenLastChar = String(botToken).charCodeAt(tokenLen - 1);
     console.warn('[auth-debug] HMAC mismatch',
       'keys=' + keys,
       'dcs_len=' + dataCheckString.length,
-      'expected_prefix=' + expected.slice(0, 12),
-      'got_prefix=' + String(hashDecoded).slice(0, 12),
-      'token_prefix=' + String(botToken).slice(0, 12),
+      'expected=' + expected.slice(0, 16),
+      'got=' + String(hashDecoded).slice(0, 16),
+      'token_len=' + tokenLen,
+      'token_last_char_code=' + tokenLastChar,
       'raw_len=' + rawInitData.length,
     );
+    // Логируем первые 80 символов dataCheckString для визуального сравнения
+    console.warn('[auth-debug] dcs_sample:', dataCheckString.slice(0, 80).replace(/\n/g, '\\n'));
+    // Первые 80 символов raw initData
+    console.warn('[auth-debug] raw_sample:', String(rawInitData).slice(0, 80));
   }
 
   return ok;
