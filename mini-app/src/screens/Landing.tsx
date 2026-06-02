@@ -1,12 +1,17 @@
 // ═══════════════════════════════════════════════════════════════
 // Landing — fallback страница для случая когда Mini App открыт
-// НЕ через Telegram (нет initData). Показывает приглашение
-// открыть бота.
+// НЕ через Telegram (нет initData).
+//
+// В DEV / при проблемах — показывает debug-инфо снизу чтобы видеть
+// причину (window.Telegram не загрузился? скрипт не подгрузился?).
 // ═══════════════════════════════════════════════════════════════
+import { getAuthDebugInfo } from '../auth';
 
-const BOT_USERNAME = import.meta.env.VITE_BOT_USERNAME || 'CupidonAppBot';
+const BOT_USERNAME = import.meta.env.VITE_BOT_USERNAME || 'Cupidon_Ai_Bot';
 
 export function Landing() {
+  const debug = getAuthDebugInfo();
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -47,6 +52,31 @@ export function Landing() {
       >
         Открыть в Telegram
       </a>
+
+      {/* Debug-инфо для диагностики (видно прямо на экране, без DevTools) */}
+      <div style={{
+        marginTop: 40,
+        padding: 12,
+        borderRadius: 8,
+        background: 'rgba(255,255,255,0.04)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        fontSize: 11,
+        color: 'var(--text-muted)',
+        textAlign: 'left',
+        maxWidth: 360,
+        width: '100%',
+        wordBreak: 'break-all',
+      }}>
+        <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--text-secondary)' }}>
+          🔧 Debug info
+        </div>
+        <pre style={{ margin: 0, fontSize: 11, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+{JSON.stringify(debug, null, 2)}
+        </pre>
+        <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 10 }}>
+          UA: {navigator.userAgent.slice(0, 80)}…
+        </div>
+      </div>
     </div>
   );
 }
