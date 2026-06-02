@@ -17,6 +17,7 @@
 // language_code, photo_url, start_param }.
 // ═══════════════════════════════════════════════════════════════
 import { createHmac, timingSafeEqual, createHash } from 'crypto';
+import { validate as tgValidate } from '@telegram-apps/init-data-node';
 
 // TTL initData. По стандарту TG — 24 часа. Раньше было 7 дней (Desktop
 // переиспользует initData до перезапуска клиента), но в случае XSS/clipboard-кражи
@@ -166,8 +167,21 @@ export function requireInitData(req, res, next) {
     if (!BOT_TOKEN) {
       return res.status(500).json({ ok: false, error: 'BOT_TOKEN не задан на сервере', code: 'SERVER_MISCONFIGURED' });
     }
-    if (!verifyInitDataHmac(rawInitData, BOT_TOKEN)) {
-      return res.status(401).json({ ok: false, error: 'Подпись initData недействительна', code: 'INVALID_HMAC' });
+
+    // Сначала пробуем официальный @telegram-apps/init-data-node (гарантированно правильная реализация)
+    let validatedByOfficial = false;
+    try {
+      tgValidate(rawInitData, BOT_TOKEN, { expiresIn: TTL_SEC });
+      validatedByOfficial = true;
+    } catch (e) {
+      console.warn('[auth-debug] @telegram-apps/init-data-node validate FAILED:', e?.message || String(e));
+    }
+
+    if (!validatedByOfficial) {
+      // Fallback на нашу ручную реализацию (тоже логирует debug при failure)
+      if (!verifyInitDataHmac(rawInitData, BOT_TOKEN)) {
+        return res.status(401).json({ ok: false, error: 'Подпись initData недействительна', code: 'INVALID_HMAC' });
+      }
     }
     parsed = parseInitData(rawInitData);
   }

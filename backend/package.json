@@ -13,6 +13,7 @@
     "setup-webhook": "node scripts/setup-webhook.js"
   },
   "dependencies": {
+    "@telegram-apps/init-data-node": "^2.0.4",
     "better-sqlite3": "^11.5.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
