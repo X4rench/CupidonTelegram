@@ -27,8 +27,26 @@ function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Получить СВЕЖИЙ initData перед каждым запросом.
+ * TG может обновлять initData в течение сессии (особенно после re-open Mini App).
+ * Если кешировать раз при загрузке — старый initData может протухнуть и HMAC
+ * не сойдётся на бэке → 401 INVALID_HMAC.
+ */
+function getFreshInitData(): string | null {
+  // Сначала пробуем window.Telegram.WebApp.initData (самый свежий)
+  try {
+    const live = (window as any)?.Telegram?.WebApp?.initData;
+    if (live && typeof live === 'string' && live.length > 0) {
+      return live;
+    }
+  } catch (_) { /* fall through */ }
+  // Fallback на кеш из auth.ts
+  return getInitDataRaw();
+}
+
 export async function fetchAuthed<T = any>(path: string, init?: RequestInit & { _retried?: boolean }): Promise<T> {
-  const initDataRaw = getInitDataRaw();
+  const initDataRaw = getFreshInitData();
   const url = `${API_BASE}${path}`;
 
   const headers: Record<string, string> = {
