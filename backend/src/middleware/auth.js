@@ -16,7 +16,7 @@
 // После успеха в req.tgUser лежит { id, first_name, last_name, username,
 // language_code, photo_url, start_param }.
 // ═══════════════════════════════════════════════════════════════
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, timingSafeEqual, createHash } from 'crypto';
 
 // TTL initData. По стандарту TG — 24 часа. Раньше было 7 дней (Desktop
 // переиспользует initData до перезапуска клиента), но в случае XSS/clipboard-кражи
@@ -121,7 +121,6 @@ function verifyInitDataHmac(rawInitData, botToken) {
     const alt1Exp = createHmac('sha256', alt1Key).update(dataCheckString).digest('hex');
 
     // Telegram Login Widget (старый формат) — secret = SHA256(bot_token)
-    const { createHash } = require('crypto');
     const alt2Key = createHash('sha256').update(botToken).digest();
     const alt2Exp = createHmac('sha256', alt2Key).update(dataCheckString).digest('hex');
 
