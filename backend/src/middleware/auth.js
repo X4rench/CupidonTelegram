@@ -115,19 +115,32 @@ function verifyInitDataHmac(rawInitData, botToken) {
     const keys = kept.map(p => p.slice(0, p.indexOf('='))).sort().join(',');
     const tokenLen = String(botToken).length;
     const tokenLastChar = String(botToken).charCodeAt(tokenLen - 1);
+
+    // Альтернативные HMAC-вариации — пробуем все известные формы, чтобы найти ту что TG использует
+    const alt1Key = createHmac('sha256', botToken).update('WebAppData').digest(); // swapped: key=bot_token
+    const alt1Exp = createHmac('sha256', alt1Key).update(dataCheckString).digest('hex');
+
+    // Telegram Login Widget (старый формат) — secret = SHA256(bot_token)
+    const { createHash } = require('crypto');
+    const alt2Key = createHash('sha256').update(botToken).digest();
+    const alt2Exp = createHmac('sha256', alt2Key).update(dataCheckString).digest('hex');
+
     console.warn('[auth-debug] HMAC mismatch',
       'keys=' + keys,
       'dcs_len=' + dataCheckString.length,
       'expected=' + expected.slice(0, 16),
+      'alt1_swapped=' + alt1Exp.slice(0, 16),
+      'alt2_login_widget=' + alt2Exp.slice(0, 16),
       'got=' + String(hashDecoded).slice(0, 16),
       'token_len=' + tokenLen,
       'token_last_char_code=' + tokenLastChar,
       'raw_len=' + rawInitData.length,
     );
-    // Логируем первые 80 символов dataCheckString для визуального сравнения
-    console.warn('[auth-debug] dcs_sample:', dataCheckString.slice(0, 80).replace(/\n/g, '\\n'));
-    // Первые 80 символов raw initData
-    console.warn('[auth-debug] raw_sample:', String(rawInitData).slice(0, 80));
+    console.warn('[auth-debug] dcs_sample:', dataCheckString.slice(0, 120).replace(/\n/g, '\\n'));
+    console.warn('[auth-debug] raw_sample:', String(rawInitData).slice(0, 120));
+    // Какой alt совпал с got?
+    if (alt1Exp === hashDecoded)  console.warn('[auth-debug] >>> MATCH: alt1 (swapped HMAC args)');
+    if (alt2Exp === hashDecoded)  console.warn('[auth-debug] >>> MATCH: alt2 (Login Widget format)');
   }
 
   return ok;
