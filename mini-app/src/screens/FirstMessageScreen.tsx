@@ -102,8 +102,8 @@ export function FirstMessageScreen() {
           value={profile}
           onChange={setProfile}
           placeholder="Например: лет 25, учится на дизайнера, любит кофейни, котов и хайкинг…"
-          minRows={3}
-          maxRows={8}
+          maxHeight={180}
+          style={{ minHeight: 80 }}
         />
 
         <div style={{ marginTop: 16 }}>

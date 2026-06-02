@@ -84,8 +84,8 @@ export function SupportScreen() {
           value={situation}
           onChange={setSituation}
           placeholder="Например: у неё умер кот, она пишет «я не могу», уже два дня не отвечает на звонки"
-          minRows={4}
-          maxRows={10}
+          maxHeight={220}
+          style={{ minHeight: 100 }}
         />
 
         <label style={styles.label}>Что у неё (опц.)</label>

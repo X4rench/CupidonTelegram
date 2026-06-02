@@ -74,8 +74,8 @@ export function RejectionScreen() {
           value={text}
           onChange={setText}
           placeholder="Я: Привет, как дела?&#10;Она: Норм. А ты что хочешь?&#10;Я: …"
-          minRows={6}
-          maxRows={14}
+          maxHeight={300}
+          style={{ minHeight: 140 }}
         />
 
         <div style={{ marginTop: 16 }}>

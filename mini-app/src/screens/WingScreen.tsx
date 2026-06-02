@@ -148,7 +148,9 @@ export function WingScreen() {
   const onBack = useCallback(() => nav('/'), [nav]);
   useBackButton(onBack);
 
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  // Используем локальный тип с id:string (для удобства как ключа в perGirl).
+  // В API Contact.id = number, но конвертируем через String() при загрузке.
+  const [contacts, setContacts] = useState<Array<Omit<Contact, 'id'> & { id: string }>>([]);
   const [activeContactId, setActiveContactId] = useState<string>(NO_CONTACT_ID);
   const [perGirl, setPerGirl] = useState<Record<string, GirlAnalysis>>({ [NO_CONTACT_ID]: emptyAnalysis() });
   const [analysisTypazhes, setAnalysisTypazhes] = useState<Record<string, string[]>>({});
