@@ -62,7 +62,10 @@ function parseInitData(raw) {
 function verifyInitDataHmac(rawInitData, botToken) {
   const params = new URLSearchParams(rawInitData);
   const hash = params.get('hash');
-  if (!hash) return false;
+  if (!hash) {
+    console.warn('[auth-debug] no hash in initData; keys:', [...params.keys()].join(','));
+    return false;
+  }
   params.delete('hash');
   // signature — не часть проверки, удаляем если есть (TDesktop иногда шлёт)
   params.delete('signature');
@@ -77,8 +80,23 @@ function verifyInitDataHmac(rawInitData, botToken) {
 
   const a = Buffer.from(expected, 'hex');
   const b = Buffer.from(String(hash), 'hex');
-  if (a.length !== b.length) return false;
-  try { return timingSafeEqual(a, b); } catch (_) { return false; }
+  const ok = (a.length === b.length) && (() => { try { return timingSafeEqual(a, b); } catch (_) { return false; } })();
+
+  if (!ok) {
+    // DEBUG: при FAILED HMAC логируем структуру (без PII значений) —
+    // помогает понять появилось ли в initData новое поле, или токен не тот.
+    const keys = [...params.keys()].sort().join(',');
+    console.warn('[auth-debug] HMAC mismatch',
+      'keys=' + keys,
+      'dcs_len=' + dataCheckString.length,
+      'expected_prefix=' + expected.slice(0, 12),
+      'got_prefix=' + String(hash).slice(0, 12),
+      'token_prefix=' + String(botToken).slice(0, 12),
+      'raw_len=' + rawInitData.length,
+    );
+  }
+
+  return ok;
 }
 
 /**
