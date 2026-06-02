@@ -1,0 +1,19 @@
+# Cloudflare Pages headers
+# https://developers.cloudflare.com/pages/configuration/headers/
+
+# index.html — никогда не кешировать (hashed-ассеты обновятся атомарно с новым HTML).
+# Если кешировать index.html — после деплоя юзеры могут получить старый HTML
+# с битыми ссылками на удалённые hashed-ассеты.
+/
+  Cache-Control: no-cache, must-revalidate
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://telegram.org; connect-src 'self' https://api.cupidon.app https://*.sentry.io https://*.ingest.sentry.io; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-ancestors https://web.telegram.org https://*.telegram.org; object-src 'none'; base-uri 'self'; form-action 'self'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+# Hashed-ассеты можно кешировать на год — имя меняется при изменении контента.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

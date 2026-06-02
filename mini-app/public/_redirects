@@ -1,0 +1,2 @@
+# SPA fallback — любой путь отдаёт index.html, React Router разбирается дальше.
+/*    /index.html   200

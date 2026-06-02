@@ -1,0 +1,40 @@
+# Корневой .gitignore — подстраховка к подмодульным .gitignore.
+# Никогда не комитим секреты и зависимости.
+
+# Секреты
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Node
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# БД (на проде)
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Логи
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Бэкап-файлы из сессии
+*.backup
+backup-*

@@ -1,0 +1,384 @@
+/* ═══════════════════════════════════════════════════════════════
+   Cupidon TMA — токены темы.
+   8 тем: dark, light, velvet, midnight, rose, forest, aurora, carbon.
+   Атрибут data-theme="X" на <html> переключает набор переменных.
+   Сами цвета взяты 1-в-1 из RN ThemeContext.js — порт идиоматичен.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root,
+:root[data-theme='dark'] {
+  --bg-primary:     #09090B;
+  --bg-card:        #18181B;
+  --bg-elevated:    #27272A;
+  --bg-surface:     #1C1C1F;
+
+  --accent-primary:   #F43F5E;
+  --accent-secondary: #E11D48;
+  --accent-soft:      rgba(244, 63, 94, 0.15);
+
+  --text-primary:   #FAFAFA;
+  --text-secondary: #A1A1AA;
+  --text-muted:     #71717A;
+  --text-accent:    #FB7185;
+
+  --status-positive: #22C55E;
+  --status-warning:  #F59E0B;
+  --status-negative: #EF4444;
+
+  --border-subtle:  rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-accent:  rgba(244, 63, 94, 0.30);
+
+  --tab-bar-bg:     rgba(24, 24, 27, 0.95);
+  --modal-overlay:  rgba(0, 0, 0, 0.7);
+  --toggle-off:     #27272A;
+  --skeleton:       #27272A;
+
+  --coin:           #fbbf24;
+  --coin-badge-bg:  rgba(251, 191, 36, 0.2);
+  --coin-dark:      #92400e;
+
+  --gradient-accent: linear-gradient(135deg, #F43F5E 0%, #EC4899 50%, #A855F7 100%);
+
+  --glow-accent: 0 0 10px rgba(244, 63, 94, 0.25);
+  --glow-strong: 0 0 20px rgba(244, 63, 94, 0.4);
+
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Telegram override — если TG-клиент задал свой bg-color, мы НЕ
+     перекрашиваем сразу: для брендового тёмного UI это даёт стабильность.
+     Включить адаптацию к --tg-theme-* можно в Phase J через data-theme="tg". */
+
+  --font-body:    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior: none;
+  /* Отключаем pull-to-refresh и elastic-scroll, которые ломают TG WebView */
+}
+
+#root {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: 16px; /* 16+ предотвращает auto-zoom на iOS Safari */
+  color: inherit;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+a {
+  color: var(--text-accent);
+  text-decoration: none;
+}
+
+/* Скроллбары — спрятать на mobile-вебе (нативный вид TG) */
+::-webkit-scrollbar { width: 0; height: 0; }
+
+/* Утилитарные классы */
+.text-muted { color: var(--text-muted); }
+.text-secondary { color: var(--text-secondary); }
+.text-accent { color: var(--text-accent); }
+
+/* ─── Light: warm cream — soft on the eyes ───────────────────────────── */
+:root[data-theme='light'] {
+  --bg-primary:     #FAF8F4;
+  --bg-card:        #FFFFFF;
+  --bg-elevated:    #F0EBE1;
+  --bg-surface:     #F5F1EA;
+
+  --accent-primary:   #E8384F;
+  --accent-secondary: #C82038;
+  --accent-soft:      rgba(232, 56, 79, 0.09);
+
+  --text-primary:   #1C1714;
+  --text-secondary: #4A4540;
+  --text-muted:     #968880;
+  --text-accent:    #C02035;
+
+  --status-positive: #15803D;
+  --status-warning:  #B45309;
+  --status-negative: #C41C1C;
+
+  --border-subtle:  rgba(60, 40, 20, 0.06);
+  --border-default: rgba(60, 40, 20, 0.10);
+  --border-accent:  rgba(232, 56, 79, 0.20);
+
+  --tab-bar-bg:    rgba(250, 248, 244, 0.97);
+  --modal-overlay: rgba(30, 20, 10, 0.35);
+  --toggle-off:    #D8D0C6;
+  --skeleton:      #EDE8DF;
+
+  --coin:          #B45309;
+  --coin-badge-bg: rgba(180, 83, 9, 0.10);
+  --coin-dark:     #78350F;
+
+  --gradient-accent: linear-gradient(135deg, #F43F5E 0%, #EC4899 50%, #A855F7 100%);
+
+  --glow-accent: 0 2px 8px rgba(232, 56, 79, 0.15);
+  --glow-strong: 0 4px 16px rgba(232, 56, 79, 0.20);
+}
+
+/* ─── Velvet: pure gold — warm amber-black bg ───────────────────────── */
+:root[data-theme='velvet'] {
+  --bg-primary:     #0E0A04;
+  --bg-card:        #1C1609;
+  --bg-elevated:    #261E0D;
+  --bg-surface:     #201807;
+
+  --accent-primary:   #D4A843;
+  --accent-secondary: #B08828;
+  --accent-soft:      rgba(212, 168, 67, 0.14);
+
+  --text-primary:   #F8EDD4;
+  --text-secondary: #C9B48A;
+  --text-muted:     #8A7250;
+  --text-accent:    #E8C06A;
+
+  --status-positive: #4ADE80;
+  --status-warning:  #FCD34D;
+  --status-negative: #F87171;
+
+  --border-subtle:  rgba(212, 168, 67, 0.09);
+  --border-default: rgba(212, 168, 67, 0.16);
+  --border-accent:  rgba(212, 168, 67, 0.42);
+
+  --tab-bar-bg:    rgba(28, 22, 9, 0.97);
+  --modal-overlay: rgba(0, 0, 0, 0.78);
+  --toggle-off:    #2E2410;
+  --skeleton:      #261E0D;
+
+  --coin:          #D4A843;
+  --coin-badge-bg: rgba(212, 168, 67, 0.22);
+  --coin-dark:     #7A5510;
+
+  --gradient-accent: linear-gradient(135deg, #D4A843 0%, #F2CC70 50%, #B08828 100%);
+
+  --glow-accent: 0 0 14px rgba(212, 168, 67, 0.38);
+  --glow-strong: 0 0 28px rgba(212, 168, 67, 0.58);
+}
+
+/* ─── Midnight: deep navy + electric blue ───────────────────────────── */
+:root[data-theme='midnight'] {
+  --bg-primary:     #04060F;
+  --bg-card:        #0A0F1E;
+  --bg-elevated:    #111B30;
+  --bg-surface:     #0D1526;
+
+  --accent-primary:   #3B82F6;
+  --accent-secondary: #2563EB;
+  --accent-soft:      rgba(59, 130, 246, 0.13);
+
+  --text-primary:   #E8F0FE;
+  --text-secondary: #90A8D0;
+  --text-muted:     #506080;
+  --text-accent:    #60A5FA;
+
+  --status-positive: #34D399;
+  --status-warning:  #FBBF24;
+  --status-negative: #F87171;
+
+  --border-subtle:  rgba(59, 130, 246, 0.09);
+  --border-default: rgba(59, 130, 246, 0.16);
+  --border-accent:  rgba(59, 130, 246, 0.38);
+
+  --tab-bar-bg:    rgba(10, 15, 30, 0.97);
+  --modal-overlay: rgba(0, 0, 0, 0.78);
+  --toggle-off:    #162040;
+  --skeleton:      #111B30;
+
+  --coin:          #FBBF24;
+  --coin-badge-bg: rgba(251, 191, 36, 0.18);
+  --coin-dark:     #92400E;
+
+  --gradient-accent: linear-gradient(135deg, #3B82F6 0%, #6366F1 50%, #8B5CF6 100%);
+
+  --glow-accent: 0 0 12px rgba(59, 130, 246, 0.30);
+  --glow-strong: 0 0 24px rgba(59, 130, 246, 0.50);
+}
+
+/* ─── Rose: dark magenta — elegant dark rose ────────────────────────── */
+:root[data-theme='rose'] {
+  --bg-primary:     #0F0810;
+  --bg-card:        #1C1220;
+  --bg-elevated:    #261830;
+  --bg-surface:     #201428;
+
+  --accent-primary:   #EC4899;
+  --accent-secondary: #DB2777;
+  --accent-soft:      rgba(236, 72, 153, 0.13);
+
+  --text-primary:   #FDF2F8;
+  --text-secondary: #C4A0C8;
+  --text-muted:     #7A5A80;
+  --text-accent:    #F472B6;
+
+  --status-positive: #34D399;
+  --status-warning:  #FBBF24;
+  --status-negative: #F87171;
+
+  --border-subtle:  rgba(236, 72, 153, 0.09);
+  --border-default: rgba(236, 72, 153, 0.16);
+  --border-accent:  rgba(236, 72, 153, 0.38);
+
+  --tab-bar-bg:    rgba(28, 18, 32, 0.97);
+  --modal-overlay: rgba(0, 0, 0, 0.78);
+  --toggle-off:    #2E1840;
+  --skeleton:      #261830;
+
+  --coin:          #FBBF24;
+  --coin-badge-bg: rgba(251, 191, 36, 0.18);
+  --coin-dark:     #92400E;
+
+  --gradient-accent: linear-gradient(135deg, #EC4899 0%, #F472B6 50%, #A855F7 100%);
+
+  --glow-accent: 0 0 12px rgba(236, 72, 153, 0.30);
+  --glow-strong: 0 0 24px rgba(236, 72, 153, 0.50);
+}
+
+/* ─── Forest: deep emerald — nature, calm ────────────────────────────── */
+:root[data-theme='forest'] {
+  --bg-primary:     #040C07;
+  --bg-card:        #0A1610;
+  --bg-elevated:    #10201A;
+  --bg-surface:     #0D1C14;
+
+  --accent-primary:   #10B981;
+  --accent-secondary: #059669;
+  --accent-soft:      rgba(16, 185, 129, 0.13);
+
+  --text-primary:   #ECFDF5;
+  --text-secondary: #84C4A4;
+  --text-muted:     #467A60;
+  --text-accent:    #34D399;
+
+  --status-positive: #4ADE80;
+  --status-warning:  #FBBF24;
+  --status-negative: #F87171;
+
+  --border-subtle:  rgba(16, 185, 129, 0.09);
+  --border-default: rgba(16, 185, 129, 0.16);
+  --border-accent:  rgba(16, 185, 129, 0.38);
+
+  --tab-bar-bg:    rgba(10, 22, 16, 0.97);
+  --modal-overlay: rgba(0, 0, 0, 0.78);
+  --toggle-off:    #142818;
+  --skeleton:      #10201A;
+
+  --coin:          #FBBF24;
+  --coin-badge-bg: rgba(251, 191, 36, 0.18);
+  --coin-dark:     #92400E;
+
+  --gradient-accent: linear-gradient(135deg, #10B981 0%, #34D399 50%, #06B6D4 100%);
+
+  --glow-accent: 0 0 12px rgba(16, 185, 129, 0.30);
+  --glow-strong: 0 0 24px rgba(16, 185, 129, 0.50);
+}
+
+/* ─── Aurora: cosmic purple — deep space violet ──────────────────────── */
+:root[data-theme='aurora'] {
+  --bg-primary:     #07050F;
+  --bg-card:        #100D1E;
+  --bg-elevated:    #18152C;
+  --bg-surface:     #141124;
+
+  --accent-primary:   #8B5CF6;
+  --accent-secondary: #7C3AED;
+  --accent-soft:      rgba(139, 92, 246, 0.13);
+
+  --text-primary:   #F5F0FF;
+  --text-secondary: #A890D0;
+  --text-muted:     #6650A0;
+  --text-accent:    #A78BFA;
+
+  --status-positive: #34D399;
+  --status-warning:  #FBBF24;
+  --status-negative: #F87171;
+
+  --border-subtle:  rgba(139, 92, 246, 0.09);
+  --border-default: rgba(139, 92, 246, 0.16);
+  --border-accent:  rgba(139, 92, 246, 0.38);
+
+  --tab-bar-bg:    rgba(16, 13, 30, 0.97);
+  --modal-overlay: rgba(0, 0, 0, 0.78);
+  --toggle-off:    #1E163A;
+  --skeleton:      #18152C;
+
+  --coin:          #FBBF24;
+  --coin-badge-bg: rgba(251, 191, 36, 0.18);
+  --coin-dark:     #92400E;
+
+  --gradient-accent: linear-gradient(135deg, #8B5CF6 0%, #EC4899 50%, #F43F5E 100%);
+
+  --glow-accent: 0 0 12px rgba(139, 92, 246, 0.30);
+  --glow-strong: 0 0 24px rgba(139, 92, 246, 0.50);
+}
+
+/* ─── Carbon: pure black + electric cyan — tech minimal ──────────────── */
+:root[data-theme='carbon'] {
+  --bg-primary:     #050505;
+  --bg-card:        #0F0F0F;
+  --bg-elevated:    #181818;
+  --bg-surface:     #121212;
+
+  --accent-primary:   #06B6D4;
+  --accent-secondary: #0891B2;
+  --accent-soft:      rgba(6, 182, 212, 0.12);
+
+  --text-primary:   #F0FAFA;
+  --text-secondary: #80AAAA;
+  --text-muted:     #406060;
+  --text-accent:    #22D3EE;
+
+  --status-positive: #4ADE80;
+  --status-warning:  #FBBF24;
+  --status-negative: #F87171;
+
+  --border-subtle:  rgba(6, 182, 212, 0.09);
+  --border-default: rgba(6, 182, 212, 0.16);
+  --border-accent:  rgba(6, 182, 212, 0.38);
+
+  --tab-bar-bg:    rgba(15, 15, 15, 0.97);
+  --modal-overlay: rgba(0, 0, 0, 0.82);
+  --toggle-off:    #202020;
+  --skeleton:      #181818;
+
+  --coin:          #FBBF24;
+  --coin-badge-bg: rgba(251, 191, 36, 0.18);
+  --coin-dark:     #92400E;
+
+  --gradient-accent: linear-gradient(135deg, #06B6D4 0%, #22D3EE 50%, #0EA5E9 100%);
+
+  --glow-accent: 0 0 12px rgba(6, 182, 212, 0.30);
+  --glow-strong: 0 0 24px rgba(6, 182, 212, 0.50);
+}
