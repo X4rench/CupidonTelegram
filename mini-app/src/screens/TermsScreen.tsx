@@ -3,7 +3,7 @@
 //
 // ВАЖНО: контент — РАБОЧАЯ ВЕРСИЯ для разработки. Перед запуском
 // обязательно ревью юристом. Все placeholder'ы вида [BUSINESS_NAME],
-// [BUSINESS_INN], [SUPPORT_EMAIL] и т.д. — должны быть заменены на
+// [BUSINESS_INN], apppartners@mail.ru и т.д. — должны быть заменены на
 // реальные данные. См. PHASE_J_NOTES.md.
 //
 // Юрисдикция: РФ (152-ФЗ, ГК РФ, ФЗ «О защите прав потребителей»).
@@ -36,14 +36,14 @@ export function TermsScreen() {
           <div style={styles.iconLabel}>Последнее обновление: {LAST_UPDATED}</div>
         </div>
 
-        <Disclaimer />
-
         <LegalSection title="1. Общие положения и предмет оферты">
           <p>
             Настоящий документ является публичной офертой (далее — «Оферта»)
-            индивидуального предпринимателя [BUSINESS_NAME] (ИНН [BUSINESS_INN],
-            ОГРНИП [BUSINESS_OGRNIP]), далее — «Исполнитель», и определяет условия
-            использования мини-приложения «Купидон» (далее — «Сервис»),
+            физического лица <strong>Капустина Романа Денисовича</strong>,
+            осуществляющего предпринимательскую деятельность в качестве
+            плательщика налога на профессиональный доход (самозанятого),
+            ИНН <strong>421212787931</strong>, далее — «Исполнитель», и определяет
+            условия использования мини-приложения «Купидон» (далее — «Сервис»),
             размещённого в мессенджере Telegram.
           </p>
           <p>
@@ -91,9 +91,10 @@ export function TermsScreen() {
               условиями Telegram.
             </li>
             <li>
-              Через ЮKassa (банковской картой) — в случае подключения этого
-              способа. Эквайринг осуществляется в соответствии с
-              законодательством РФ. [PAYMENT_PROVIDER_DETAILS]
+              Через ЮKassa (банковскими картами Visa/MasterCard/МИР).
+              Эквайер — ООО НКО «ЮMani», лицензия Банка России № 3510-К.
+              Данные банковских карт обрабатываются эквайером в соответствии
+              с требованиями PCI DSS, Исполнителю не передаются.
             </li>
           </ul>
           <p>
@@ -113,7 +114,7 @@ export function TermsScreen() {
           <p>
             Для запроса возврата, связанного с платежами в Telegram Stars,
             используйте встроенную команду <strong>/paysupport</strong> в
-            нашем Telegram-боте или напишите на [SUPPORT_EMAIL] с указанием
+            нашем Telegram-боте или напишите на apppartners@mail.ru с указанием
             номера транзакции.
           </p>
         </LegalSection>
@@ -189,17 +190,19 @@ export function TermsScreen() {
 
         <LegalSection title="11. Контакты">
           <p>
-            <strong>Исполнитель:</strong> ИП [BUSINESS_NAME]<br />
-            <strong>ИНН:</strong> [BUSINESS_INN]<br />
-            <strong>Адрес:</strong> [BUSINESS_ADDRESS]<br />
-            <strong>E-mail:</strong> [SUPPORT_EMAIL]<br />
-            <strong>Telegram-поддержка:</strong> [SUPPORT_TG_USERNAME]
+            <strong>Исполнитель:</strong> Капустин Роман Денисович, самозанятый
+            (плательщик налога на профессиональный доход)<br />
+            <strong>ИНН:</strong> 421212787931<br />
+            <strong>E-mail:</strong> apppartners@mail.ru<br />
+            <strong>Адрес для письменных обращений:</strong> предоставляется
+            по запросу через e-mail<br />
+            <strong>Сайт:</strong> https://cupidonai.ru
           </p>
         </LegalSection>
 
         <div style={styles.footer}>
           По вопросам, связанным с условиями использования, обращайтесь:
-          {' '}[SUPPORT_EMAIL]
+          {' '}apppartners@mail.ru
         </div>
       </div>
     </div>
@@ -207,18 +210,6 @@ export function TermsScreen() {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function Disclaimer() {
-  return (
-    <div style={styles.disclaimer}>
-      <strong style={{ color: 'var(--status-warning)' }}>Рабочая версия.</strong>{' '}
-      Документ оформлен по структуре, требуемой законодательством РФ, но
-      требует финальной проверки и заверения юристом перед публичным запуском.
-      Реквизиты ИП и контактные данные временно содержат placeholder'ы вида
-      [BUSINESS_NAME] и будут заменены на актуальные.
-    </div>
-  );
-}
 
 interface SectionProps {
   title: string;

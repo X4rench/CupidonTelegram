@@ -7,7 +7,7 @@
 //
 // ВНИМАНИЕ: текст — РАБОЧАЯ ВЕРСИЯ. Финальная редакция требует
 // проверки юристом и соответствия требованиям Роскомнадзора.
-// Placeholder'ы: [BUSINESS_NAME], [BUSINESS_INN], [PRIVACY_EMAIL],
+// Placeholder'ы: [BUSINESS_NAME], [BUSINESS_INN], apppartners@mail.ru,
 // [BUSINESS_ADDRESS], [RKN_REGISTRATION_NUMBER].
 // ═══════════════════════════════════════════════════════════════
 import { useCallback, type ReactNode, type CSSProperties } from 'react';
@@ -36,17 +36,17 @@ export function PrivacyScreen() {
           <div style={styles.iconLabel}>Последнее обновление: {LAST_UPDATED}</div>
         </div>
 
-        <Disclaimer />
-
         <LegalSection title="1. Оператор персональных данных">
           <p>
-            Оператором персональных данных является индивидуальный
-            предприниматель [BUSINESS_NAME] (ИНН [BUSINESS_INN],
-            адрес: [BUSINESS_ADDRESS]), далее — «Оператор».
+            Оператором персональных данных является физическое лицо
+            <strong> Капустин Роман Денисович</strong>, осуществляющее
+            предпринимательскую деятельность в качестве плательщика налога
+            на профессиональный доход (самозанятого), ИНН <strong>421212787931</strong>,
+            далее — «Оператор».
           </p>
           <p>
-            Регистрация в реестре операторов персональных данных
-            Роскомнадзора: [RKN_REGISTRATION_NUMBER].
+            Уведомление в реестр операторов персональных данных Роскомнадзора
+            направлено в установленном порядке (п. 1 ст. 22 ФЗ № 152-ФЗ).
           </p>
           <p>
             Настоящая Политика разработана в соответствии с Федеральным
@@ -149,7 +149,8 @@ export function PrivacyScreen() {
               <strong>polza.ai</strong> (AI-провайдер): получает тексты,
               отправляемые Пользователем для AI-анализа. Persistence на стороне
               провайдера не используется, тексты обрабатываются по требованию.
-              Договор обработки персональных данных — [POLZA_DPA_REF].
+              Договор обработки персональных данных предоставляется
+              по запросу на apppartners@mail.ru.
             </li>
             <li>
               <strong>Telegram Messenger LLP:</strong> платёжный механизм
@@ -163,9 +164,10 @@ export function PrivacyScreen() {
               (фильтруются на стороне клиента, см. раздел 9).
             </li>
             <li>
-              <strong>Эквайер для платежей картой</strong> (при подключении):
-              [PAYMENT_PROVIDER_DETAILS]. Данные банковских карт обрабатываются
-              эквайером, Оператору не передаются.
+              <strong>Эквайер для платежей картой:</strong> ООО НКО «ЮMani»
+              (ЮKassa), лицензия Банка России № 3510-К. Данные банковских карт
+              обрабатываются эквайером в соответствии с PCI DSS, Оператору
+              не передаются.
             </li>
           </ul>
           <p>
@@ -201,7 +203,7 @@ export function PrivacyScreen() {
             </li>
             <li>
               <strong>Дополнительные запросы:</strong> на e-mail
-              <em> [PRIVACY_EMAIL]</em>.
+              <em> apppartners@mail.ru</em>.
             </li>
           </ul>
           <p>
@@ -246,8 +248,9 @@ export function PrivacyScreen() {
             По вопросам обработки персональных данных:
           </p>
           <p>
-            <strong>E-mail:</strong> [PRIVACY_EMAIL]<br />
-            <strong>Адрес для письменных обращений:</strong> [BUSINESS_ADDRESS]
+            <strong>E-mail:</strong> apppartners@mail.ru<br />
+            <strong>Адрес для письменных обращений:</strong> предоставляется
+            по запросу через e-mail (в соответствии с режимом самозанятого).
           </p>
           <p>
             В случае несогласия с обработкой данных или нарушения прав
@@ -271,7 +274,7 @@ export function PrivacyScreen() {
         </LegalSection>
 
         <div style={styles.footer}>
-          По вопросам конфиденциальности обращайтесь: [PRIVACY_EMAIL]
+          По вопросам конфиденциальности обращайтесь: apppartners@mail.ru
         </div>
       </div>
     </div>
@@ -279,18 +282,6 @@ export function PrivacyScreen() {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function Disclaimer() {
-  return (
-    <div style={styles.disclaimer}>
-      <strong style={{ color: 'var(--status-warning)' }}>Рабочая версия.</strong>{' '}
-      Документ оформлен по структуре, требуемой 152-ФЗ, но требует финального
-      ревью юристом и регистрации Оператора в Роскомнадзоре перед запуском
-      Сервиса в production. Placeholder'ы (например, [BUSINESS_NAME],
-      [PRIVACY_EMAIL]) будут заменены на актуальные данные.
-    </div>
-  );
-}
 
 interface SectionProps {
   title: string;
