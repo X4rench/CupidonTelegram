@@ -33,10 +33,11 @@ import {
   type AdminPromptTestResp,
 } from '../api';
 
-type Tab = 'stats' | 'prompts' | 'logs' | 'audit';
+type Tab = 'stats' | 'prompts' | 'subs' | 'logs' | 'audit';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'stats',   label: 'Статистика' },
+  { id: 'subs',    label: 'Подписки' },
   { id: 'prompts', label: 'Промпты' },
   { id: 'logs',    label: 'Логи' },
   { id: 'audit',   label: 'Audit' },
@@ -88,6 +89,7 @@ export function AdminScreen() {
 
       <div style={styles.content}>
         {tab === 'stats'   && <StatsTab />}
+        {tab === 'subs'    && <SubsTab />}
         {tab === 'prompts' && <PromptsTab />}
         {tab === 'logs'    && <LogsTab />}
         {tab === 'audit'   && <AuditTab />}
@@ -168,6 +170,217 @@ function StatsTab() {
       <div style={{ marginTop: 8 }}>
         <SecondaryButton onClick={load} full>Обновить</SecondaryButton>
       </div>
+    </div>
+  );
+}
+
+// ─── Subscriptions Tab ──────────────────────────────────────────────────────
+// Поиск юзера по telegram_user_id → выдать/отозвать подписку.
+
+function SubsTab() {
+  const [tgIdInput, setTgIdInput] = useState('');
+  const [user, setUser] = useState<any>(null);
+  const [activeSub, setActiveSub] = useState<any>(null);
+  const [plan, setPlan] = useState<'basic' | 'premium' | 'day_pass'>('basic');
+  const [days, setDays] = useState<number>(30);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const lookup = async () => {
+    const tgId = parseInt(tgIdInput.trim(), 10);
+    if (!Number.isFinite(tgId)) {
+      setError('Введи числовой TG ID');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    setUser(null);
+    setActiveSub(null);
+    try {
+      const res = await adminApi.findUser(tgId);
+      if (res.ok) {
+        setUser(res.user);
+        setActiveSub(res.active_subscription);
+      } else {
+        setError(res.error || 'Юзер не найден');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Ошибка запроса');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const grant = async () => {
+    if (!user) return;
+    if (!confirm(`Выдать подписку ${plan} на ${days} дней юзеру ${user.telegram_user_id}?`)) return;
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await adminApi.grantSubscription(user.telegram_user_id, plan, days);
+      if (res.ok) {
+        notificationHaptic('success');
+        setMessage(`✓ Подписка ${plan} выдана до ${new Date(res.expires_at).toLocaleString('ru-RU')}`);
+        await lookup();
+      } else {
+        setError(res.error || 'Не удалось выдать');
+        notificationHaptic('error');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Ошибка');
+      notificationHaptic('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const revoke = async () => {
+    if (!user || !activeSub) return;
+    if (!confirm(`Отозвать активную подписку ${activeSub.plan} у юзера ${user.telegram_user_id}? Доступ прекратится прямо сейчас.`)) return;
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await adminApi.revokeSubscription(user.telegram_user_id);
+      if (res.ok) {
+        notificationHaptic('success');
+        setMessage(`✓ Подписка ${res.revoked?.plan} отозвана`);
+        await lookup();
+      } else {
+        setError(res.error || 'Не удалось отозвать');
+        notificationHaptic('error');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Ошибка');
+      notificationHaptic('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Card>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>Поиск юзера</div>
+        <input
+          type="number"
+          inputMode="numeric"
+          placeholder="Telegram user ID (например 794285476)"
+          value={tgIdInput}
+          onChange={e => setTgIdInput(e.target.value)}
+          style={{
+            width: '100%', padding: '12px 14px', borderRadius: 10,
+            background: 'var(--bg-card)', border: '1px solid var(--border-default)',
+            color: 'var(--text-primary)', fontSize: 15, marginBottom: 10,
+          }}
+        />
+        <SecondaryButton onClick={lookup} full disabled={loading}>
+          {loading ? 'Загрузка…' : 'Найти'}
+        </SecondaryButton>
+      </Card>
+
+      {error && (
+        <Card style={{ borderColor: 'var(--status-negative)' }}>
+          <span style={{ color: 'var(--status-negative)', fontSize: 14 }}>{error}</span>
+        </Card>
+      )}
+
+      {message && (
+        <Card style={{ borderColor: 'var(--status-positive)' }}>
+          <span style={{ color: 'var(--status-positive)', fontSize: 14 }}>{message}</span>
+        </Card>
+      )}
+
+      {user && (
+        <>
+          <Card>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>
+              {user.first_name || ''} {user.last_name || ''} {user.username ? `(@${user.username})` : ''}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', display: 'grid', gap: 4 }}>
+              <div>TG ID: <strong>{user.telegram_user_id}</strong></div>
+              <div>Тариф сейчас: <strong style={{ color: 'var(--text-accent)' }}>{user.sub_tier || 'free'}</strong></div>
+              {user.sub_expires_at && (
+                <div>Действует до: {new Date(user.sub_expires_at).toLocaleString('ru-RU')}</div>
+              )}
+              {activeSub && (
+                <div style={{ marginTop: 4, padding: 8, background: 'var(--accent-soft)', borderRadius: 6 }}>
+                  Активная подписка: <strong>{activeSub.plan}</strong> ({activeSub.source})
+                </div>
+              )}
+            </div>
+          </Card>
+
+          <Card>
+            <div style={{ fontWeight: 600, marginBottom: 12 }}>Выдать подписку</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              {(['basic', 'premium', 'day_pass'] as const).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPlan(p)}
+                  style={{
+                    flex: 1, padding: '10px', borderRadius: 8,
+                    background: plan === p ? 'var(--accent-primary)' : 'var(--bg-elevated)',
+                    color: plan === p ? '#fff' : 'var(--text-secondary)',
+                    border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  {p === 'basic' ? 'Basic' : p === 'premium' ? 'Premium' : 'Day Pass'}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+              <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>Дней:</span>
+              <input
+                type="number"
+                min={1}
+                max={365}
+                value={days}
+                onChange={e => setDays(parseInt(e.target.value, 10) || 1)}
+                style={{
+                  flex: 1, padding: '10px 12px', borderRadius: 8,
+                  background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-primary)', fontSize: 15,
+                }}
+              />
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[1, 7, 30, 90].map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setDays(d)}
+                    style={{
+                      padding: '6px 10px', borderRadius: 6,
+                      background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
+                      color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer',
+                    }}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <GradientButton full onClick={grant} loading={loading}>
+              Выдать {plan} на {days} дн.
+            </GradientButton>
+          </Card>
+
+          {activeSub && (
+            <Card style={{ borderColor: 'var(--status-warning)' }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Отозвать подписку</div>
+              <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-muted)' }}>
+                Доступ прекратится <strong>прямо сейчас</strong>. Действие необратимо
+                (но можно выдать заново).
+              </p>
+              <SecondaryButton onClick={revoke} full disabled={loading} style={{ color: 'var(--status-negative)' }}>
+                Отозвать {activeSub.plan}
+              </SecondaryButton>
+            </Card>
+          )}
+        </>
+      )}
     </div>
   );
 }

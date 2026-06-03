@@ -92,20 +92,32 @@ export function TutorialScreen() {
     nav('/', { replace: true });
   };
 
-  const next = () => {
+  // Lock: блокируем повторные клики во время CSS-transition (280ms).
+  // Без этого на медленных TG WebView один тап может зарегистрироваться
+  // несколько раз → idx прыгает через все слайды → чёрный экран.
+  const [locked, setLocked] = useState(false);
+  const guard = (fn: () => void) => () => {
+    if (locked || finishing) return;
+    setLocked(true);
+    fn();
+    setTimeout(() => setLocked(false), 320);
+  };
+
+  const next = guard(() => {
     selectionHaptic();
     if (isLast) {
       finish();
     } else {
-      setIdx(i => i + 1);
+      // Math.min — двойная защита от перепрыгивания за пределы массива
+      setIdx(i => Math.min(i + 1, SLIDES.length - 1));
     }
-  };
+  });
 
-  const back = () => {
-    selectionHaptic();
+  const back = guard(() => {
     if (idx === 0) return;
-    setIdx(i => i - 1);
-  };
+    selectionHaptic();
+    setIdx(i => Math.max(i - 1, 0));
+  });
 
   return (
     <div style={styles.container}>
@@ -119,12 +131,13 @@ export function TutorialScreen() {
         </button>
       </div>
 
-      {/* Слайды — translate-X для плавной анимации */}
+      {/* Слайды — translate-X. clampedIdx защищает от чёрного экрана если
+          где-то проскочит idx > SLIDES.length-1. */}
       <div style={styles.viewport}>
         <div
           style={{
             ...styles.track,
-            transform: `translateX(-${idx * 100}%)`,
+            transform: `translateX(-${Math.max(0, Math.min(idx, SLIDES.length - 1)) * (100 / SLIDES.length)}%)`,
             width: `${SLIDES.length * 100}%`,
           }}
         >

@@ -692,4 +692,18 @@ export const adminApi = {
   getAuditLog: (limit = 100, action?: string) =>
     fetchAuthed<AdminAuditResp>(`/admin/audit-log?limit=${limit}${action ? `&action=${encodeURIComponent(action)}` : ''}`),
   getModels:   () => fetchAuthed<AdminModelsResp>('/admin/models'),
+
+  // Управление подписками по TG ID
+  findUser: (tgId: number | string) =>
+    fetchAuthed<{ ok: boolean; user: any; active_subscription: any | null; error?: string }>(`/admin/users/${tgId}`),
+  grantSubscription: (tgId: number | string, plan: 'basic' | 'premium' | 'day_pass', days: number) =>
+    fetchAuthed<{ ok: boolean; plan: string; days: number; expires_at: string; error?: string }>(
+      `/admin/users/${tgId}/grant-subscription`,
+      { method: 'POST', body: JSON.stringify({ plan, days }) },
+    ),
+  revokeSubscription: (tgId: number | string) =>
+    fetchAuthed<{ ok: boolean; revoked?: { plan: string; was_expires: string }; error?: string }>(
+      `/admin/users/${tgId}/revoke-subscription`,
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
 };
