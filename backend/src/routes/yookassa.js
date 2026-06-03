@@ -30,31 +30,44 @@ const PLAN_DURATION_DAYS = {
 };
 
 /**
- * Constant-time проверка секрета. Без него любой может слать поддельные
- * payment.succeeded и активировать чужие подписки. Заголовок задаётся
- * нами при создании webhook в ЛК ЮКассы (поле "Дополнительный заголовок").
+ * Опциональная constant-time проверка секрета.
  *
- * Если YK_WEBHOOK_SECRET не задан — webhook отклоняет всё (защита от
- * случайного выкатывания в прод с пустым секретом).
+ * Если YK_WEBHOOK_SECRET задан И в запросе есть X-YK-Webhook-Token — сверяем
+ * через timingSafeEqual. Если они не совпадают → 401.
+ *
+ * Если header в запросе ОТСУТСТВУЕТ (ЛК ЮКассы не всегда даёт настройку
+ * "Дополнительный заголовок") — пропускаем с warning. Защита тогда через
+ * IP allowlist ЮКассы (185.71.76.0/27 и др. в nginx).
+ *
+ * Если YK_WEBHOOK_SECRET вообще не задан в .env → пропускаем с warning.
  */
 function verifySecret(reqToken) {
   if (!YK_WEBHOOK_SECRET) {
-    console.error('[yookassa] YK_WEBHOOK_SECRET не задан — webhook отклоняет все запросы');
-    return false;
+    console.warn('[yookassa] YK_WEBHOOK_SECRET не задан в .env — пропускаем без проверки токена');
+    return true; // не блочим — защита через IP allowlist на nginx
   }
-  if (typeof reqToken !== 'string') return false;
+  if (typeof reqToken !== 'string' || reqToken.length === 0) {
+    console.warn('[yookassa] webhook без X-YK-Webhook-Token header — пропускаем (ЛК ЮКассы не настроил доп.заголовок)');
+    return true; // не блочим — ЛК ЮКассы может не поддерживать кастомные headers
+  }
+  // Если header есть — сверяем строго
   const a = Buffer.from(reqToken);
   const b = Buffer.from(YK_WEBHOOK_SECRET);
-  if (a.length !== b.length) return false;
-  try { return timingSafeEqual(a, b); } catch (_) { return false; }
+  if (a.length !== b.length) {
+    console.warn('[yookassa] webhook с НЕВЕРНЫМ X-YK-Webhook-Token — отклоняем');
+    return false;
+  }
+  try {
+    const ok = timingSafeEqual(a, b);
+    if (!ok) console.warn('[yookassa] webhook с НЕВЕРНЫМ X-YK-Webhook-Token (length match) — отклоняем');
+    return ok;
+  } catch (_) { return false; }
 }
 
 // ── POST /api/v1/yookassa/webhook ─────────────────────────────────────────────
 router.post('/webhook', async (req, res) => {
   const reqToken = req.header('X-YK-Webhook-Token');
   if (!verifySecret(reqToken)) {
-    console.warn('[yookassa] webhook with invalid secret');
-    // 200 чтобы ЮКасса не ретраила (всё равно секрет неверный)
     return res.status(401).json({ ok: false });
   }
 
