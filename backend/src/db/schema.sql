@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS users (
   -- Прохождение онбординга
   onboarding_done   INTEGER NOT NULL DEFAULT 0,
   questionnaire_done INTEGER NOT NULL DEFAULT 0,
+  -- Туториал в Mini App пройден (5 слайдов после анкеты)
+  tutorial_done     INTEGER NOT NULL DEFAULT 0,
   -- Часовые метки
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now')),

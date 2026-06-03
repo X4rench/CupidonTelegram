@@ -14,6 +14,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { createInvoiceLink } from '../services/bot-api.js';
+import db from '../db/index.js';
 
 const router = Router();
 
@@ -84,6 +85,91 @@ router.get('/prices', (req, res) => {
     prices: PRICES,
     titles: PLAN_TITLES,
     descriptions: PLAN_DESCRIPTIONS,
+  });
+});
+
+// ── POST /api/v1/payments/yookassa/invoice (Phase I — ЮКасса) ────────────────
+// Создаёт платёж в ЮКассе и возвращает confirmation_url для перенаправления.
+// Юзер открывает этот URL, оплачивает картой → ЮКасса шлёт webhook на
+// /api/v1/yookassa/webhook, который активирует подписку идемпотентно.
+//
+// Цены в рублях — фиксированно из env (YK_PRICE_BASIC и т.д.).
+//
+// Если YK_SHOP_ID/YK_SECRET_KEY не заданы — возвращаем 503 «не настроено».
+const YK_PRICES_RUB = {
+  basic:    parseInt(process.env.YK_PRICE_BASIC, 10)    || 280,
+  premium:  parseInt(process.env.YK_PRICE_PREMIUM, 10)  || 700,
+  day_pass: parseInt(process.env.YK_PRICE_DAY_PASS, 10) || 70,
+};
+
+router.post('/yookassa/invoice', async (req, res) => {
+  const YK_SHOP_ID = process.env.YK_SHOP_ID;
+  const YK_SECRET_KEY = process.env.YK_SECRET_KEY;
+
+  if (!YK_SHOP_ID || !YK_SECRET_KEY) {
+    return res.status(503).json({ ok: false, error: 'Оплата картой временно недоступна. Используй Telegram Stars.' });
+  }
+
+  const { plan } = req.body || {};
+  if (!plan || !YK_PRICES_RUB[plan]) {
+    return res.status(400).json({ ok: false, error: `plan должен быть один из: ${Object.keys(YK_PRICES_RUB).join(', ')}` });
+  }
+
+  const amountRub = YK_PRICES_RUB[plan];
+  const idempotenceKey = crypto.randomBytes(16).toString('hex');
+  const botUsername = process.env.BOT_USERNAME || 'CupidonAppBot';
+  const botAppName  = process.env.BOT_APP_NAME  || 'app';
+  const returnUrl = `https://t.me/${botUsername}/${botAppName}`;
+
+  let data;
+  try {
+    const apiRes = await fetch('https://api.yookassa.ru/v3/payments', {
+      method: 'POST',
+      headers: {
+        'Idempotence-Key': idempotenceKey,
+        'Authorization': 'Basic ' + Buffer.from(`${YK_SHOP_ID}:${YK_SECRET_KEY}`).toString('base64'),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        amount: { value: amountRub.toFixed(2), currency: 'RUB' },
+        capture: true,
+        confirmation: {
+          type: 'redirect',
+          return_url: returnUrl,
+        },
+        description: `Купидон — ${plan}`,
+        metadata: {
+          plan,
+          tg_user_id: String(req.tgUser.id),
+        },
+      }),
+    });
+    data = await apiRes.json();
+    if (!apiRes.ok || !data?.confirmation?.confirmation_url) {
+      console.error('[payments/yookassa/invoice] YK API error:', apiRes.status, data);
+      return res.status(502).json({ ok: false, error: 'Не удалось создать платёж ЮКассы', detail: data });
+    }
+  } catch (err) {
+    console.error('[payments/yookassa/invoice] fetch failed:', err?.message || err);
+    return res.status(502).json({ ok: false, error: 'Сервис оплаты недоступен. Попробуй позже.' });
+  }
+
+  // Сохраним pending запись для матчинга вебхуком + reconciliation
+  try {
+    db.run(
+      `INSERT OR IGNORE INTO payments (telegram_user_id, charge_id, provider, plan, amount_minor, currency, status, raw)
+       VALUES (?, ?, 'yookassa', ?, ?, 'RUB', 'pending', ?)`,
+      req.tgUser.id, data.id, plan, amountRub * 100, JSON.stringify(data).slice(0, 8000)
+    );
+  } catch (err) {
+    console.warn('[payments/yookassa/invoice] db insert failed:', err?.message);
+  }
+
+  res.json({
+    ok: true,
+    confirmation_url: data.confirmation.confirmation_url,
+    payment_id: data.id,
+    amount_rub: amountRub,
   });
 });
 

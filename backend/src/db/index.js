@@ -36,7 +36,32 @@ const MIGRATIONS = [
     version: '001_init_marker',
     sql: '-- init marker: schema_migrations infra ready',
   },
+  // 002 — добавляем колонку tutorial_done для проигрывания туториала
+  // только при первом входе после онбординга+анкеты.
+  // Существующим юзерам ставим tutorial_done=1 (они уже видели приложение —
+  // не дёргаем их туториалом при апгрейде).
+  // Обрабатывается особо ниже (см. applyTutorialDoneMigration) потому что
+  // schema.sql уже содержит колонку → ALTER упадёт на fresh-install.
+  {
+    version: '002_users_tutorial_done',
+    sql: null, // null = специальная обработка
+  },
 ];
+
+/**
+ * 002 migration — добавить tutorial_done. Идемпотентность через PRAGMA table_info:
+ * если колонка уже есть (после fresh CREATE TABLE из schema.sql) — пропускаем ALTER,
+ * только UPDATE существующих юзеров чтобы не дёргать их туториалом.
+ */
+function applyTutorialDoneMigration() {
+  const cols = db.prepare('PRAGMA table_info(users)').all();
+  const hasCol = cols.some(c => c.name === 'tutorial_done');
+  if (!hasCol) {
+    db.exec(`ALTER TABLE users ADD COLUMN tutorial_done INTEGER NOT NULL DEFAULT 0`);
+  }
+  // На существующих юзерах ставим tutorial_done=1 (они уже работали с приложением)
+  db.exec(`UPDATE users SET tutorial_done = 1 WHERE tutorial_done = 0`);
+}
 
 function isApplied(version) {
   return !!db.prepare('SELECT 1 FROM schema_migrations WHERE version = ?').get(version);
@@ -48,7 +73,11 @@ function markApplied(version) {
 for (const m of MIGRATIONS) {
   if (isApplied(m.version)) continue;
   try {
-    db.exec(m.sql);
+    if (m.version === '002_users_tutorial_done') {
+      applyTutorialDoneMigration();
+    } else if (m.sql) {
+      db.exec(m.sql);
+    }
     markApplied(m.version);
     console.log(`[db] applied migration ${m.version}`);
   } catch (err) {

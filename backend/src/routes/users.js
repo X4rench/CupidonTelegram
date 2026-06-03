@@ -32,6 +32,7 @@ function buildUserResponse(user) {
     language_code:      user.language_code,
     onboarding_done:    !!user.onboarding_done,
     questionnaire_done: !!user.questionnaire_done,
+    tutorial_done:      !!user.tutorial_done,
     user_profile:       user.user_profile ? safeJsonParse(user.user_profile) : null,
     requests_count:     user.requests_count,
     simulations_count:  user.simulations_count,
@@ -57,7 +58,7 @@ router.get('/me', (req, res) => {
 // Обновить профиль (анкета онбординга) — user_profile + onboarding_done +
 // questionnaire_done. Не разрешаем менять telegram_user_id / счётчики / подписку.
 router.put('/me', (req, res) => {
-  const { user_profile, onboarding_done, questionnaire_done } = req.body;
+  const { user_profile, onboarding_done, questionnaire_done, tutorial_done } = req.body;
   const user = db.get('SELECT * FROM users WHERE telegram_user_id = ?', req.tgUser.id);
   if (!user) return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
 
@@ -76,11 +77,13 @@ router.put('/me', (req, res) => {
        user_profile       = COALESCE(?, user_profile),
        onboarding_done    = COALESCE(?, onboarding_done),
        questionnaire_done = COALESCE(?, questionnaire_done),
+       tutorial_done      = COALESCE(?, tutorial_done),
        updated_at         = datetime('now')
      WHERE id = ?`,
     profileJson,
     typeof onboarding_done    === 'boolean' ? (onboarding_done    ? 1 : 0) : null,
     typeof questionnaire_done === 'boolean' ? (questionnaire_done ? 1 : 0) : null,
+    typeof tutorial_done      === 'boolean' ? (tutorial_done      ? 1 : 0) : null,
     user.id
   );
 

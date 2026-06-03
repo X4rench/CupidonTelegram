@@ -26,9 +26,12 @@ import promoRouter        from './routes/promo.js';
 import pollsRouter        from './routes/polls.js';
 import paymentsRouter     from './routes/payments.js';
 import telegramRouter     from './routes/telegram.js'; // /telegram/webhook
+import yookassaRouter     from './routes/yookassa.js'; // /yookassa/webhook
 
 // Log retention
 import { startCleanupSchedule } from './utils/logCleanup.js';
+// YooKassa reconciliation (catches webhooks that didn't reach us)
+import { startReconciliation } from './utils/reconcile.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
@@ -90,6 +93,9 @@ app.get('/health', (req, res) => {
 // ── Webhook endpoints — БЕЗ initData (своя верификация) ─────────────────────
 // Подключаем ДО глобального requireInitData, иначе webhook не пройдёт авторизацию.
 app.use('/api/v1/telegram', telegramRouter);
+// ЮКасса присылает уведомления о платежах со своей стороны (не из Mini App) —
+// проверяет себя через X-YK-Webhook-Token (secret-token из YK_WEBHOOK_SECRET).
+app.use('/api/v1/yookassa', yookassaRouter);
 
 // ── Все остальные /api/v1/* требуют initData ─────────────────────────────────
 app.use('/api/v1', requireInitData);
@@ -199,6 +205,8 @@ app.listen(PORT, () => {
 
   // Periodic log cleanup
   startCleanupSchedule();
+  // YooKassa reconciliation (no-op если YK_SHOP_ID/YK_SECRET_KEY не заданы)
+  startReconciliation();
 });
 
 export default app;
