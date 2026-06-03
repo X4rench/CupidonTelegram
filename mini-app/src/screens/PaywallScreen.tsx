@@ -25,7 +25,23 @@ import { usePaywall, type PaywallReason } from '../contexts/PaywallContext';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
 import { startStarsPayment, isStarsPaymentAvailable } from '../utils/payments';
-import type { StarsPlan } from '../api';
+import { createYookassaInvoice, getMe, type StarsPlan } from '../api';
+
+// Курс Stars → ₽ для отображения примерной рублёвой цены. Stars покупаются
+// через @PremiumBot за рубли по курсу ~1.4-1.5 ₽/звезда (зависит от региона).
+// Точная цена видна юзеру при открытии invoice в TG. Здесь — только подсказка.
+const STARS_TO_RUB = parseFloat(import.meta.env.VITE_STARS_TO_RUB || '1.4') || 1.4;
+
+// ЮКасса включена? Проверка через env-флаг VITE_YOOKASSA_ENABLED.
+// При false — вторая кнопка "Купить картой" не отображается.
+const YOOKASSA_ENABLED = (import.meta.env.VITE_YOOKASSA_ENABLED ?? '0') === '1';
+
+// Цены в рублях (для UI). Точные суммы — на бэке в YK_PRICE_*.
+const RUB_PRICES: Record<StarsPlan, number> = {
+  basic: parseInt(import.meta.env.VITE_RUB_PRICE_BASIC || '280', 10) || 280,
+  premium: parseInt(import.meta.env.VITE_RUB_PRICE_PREMIUM || '700', 10) || 700,
+  day_pass: parseInt(import.meta.env.VITE_RUB_PRICE_DAY_PASS || '70', 10) || 70,
+};
 
 // ── Конфиг тарифов ───────────────────────────────────────────────────────────
 // Source-of-truth для цен — backend (process.env.STARS_PRICE_*).
@@ -156,6 +172,60 @@ export function PaywallScreen() {
     }
   }, [busyPlan, refresh, closeAndBack, tgAvailable]);
 
+  // ── ЮКасса (Phase I) ───────────────────────────────────────────────────────
+  // 1. Запрашиваем confirmation_url у бэка.
+  // 2. Открываем в TG WebView (или window.open вне TG).
+  // 3. Polling /users/me каждые 3с × 10 — ждём пока webhook ЮКассы активирует
+  //    подписку. Если за 30 сек тир не сменился — пишем "проверь позже".
+  const handlePayCard = useCallback(async (plan: StarsPlan) => {
+    if (busyPlan) return;
+    impactHaptic('medium');
+    setBusyPlan(plan);
+    setToast(null);
+
+    try {
+      const res = await createYookassaInvoice(plan);
+      if (!res.ok || !res.confirmation_url) {
+        notificationHaptic('error');
+        setToast({ kind: 'error', text: res.error || 'Не удалось создать платёж' });
+        setBusyPlan(null);
+        return;
+      }
+      // Открываем оплату — в TG через openLink, вне TG через window.open
+      const tg = (window as any)?.Telegram?.WebApp;
+      if (tg?.openLink) {
+        tg.openLink(res.confirmation_url);
+      } else {
+        window.open(res.confirmation_url, '_blank');
+      }
+      // Polling — ждём пока вебхук активирует подписку
+      setToast({ kind: 'success', text: 'Открываем оплату… После оплаты подписка активируется автоматически.' });
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+          const meRes = await getMe();
+          if (meRes?.user?.tier && meRes.user.tier !== 'free') {
+            notificationHaptic('success');
+            await refresh();
+            setToast({ kind: 'success', text: 'Подписка активирована' });
+            setTimeout(() => closeAndBack(), 1200);
+            return;
+          }
+        } catch (_) { /* продолжаем polling */ }
+      }
+      // Не дождались — оставляем экран открытым с подсказкой
+      setToast({
+        kind: 'success',
+        text: 'Платёж в обработке. Если ты завершил оплату — обнови экран через минуту.',
+      });
+    } catch (err: any) {
+      notificationHaptic('error');
+      setToast({ kind: 'error', text: err?.message || 'Ошибка оплаты' });
+    } finally {
+      setBusyPlan(null);
+    }
+  }, [busyPlan, refresh, closeAndBack]);
+
   return (
     <div style={styles.container}>
       {/* Header */}
@@ -200,6 +270,7 @@ export function PaywallScreen() {
             selected={selected === plan.id}
             onSelect={() => { impactHaptic('light'); setSelected(plan.id); }}
             onBuy={() => handleBuy(plan.id)}
+            onBuyCard={YOOKASSA_ENABLED ? () => handlePayCard(plan.id) : undefined}
             busy={busyPlan === plan.id}
             disabled={busyPlan != null && busyPlan !== plan.id}
           />
@@ -220,6 +291,7 @@ export function PaywallScreen() {
             selected={selected === 'day_pass'}
             onSelect={() => { impactHaptic('light'); setSelected('day_pass'); }}
             onBuy={() => handleBuy('day_pass')}
+            onBuyCard={YOOKASSA_ENABLED ? () => handlePayCard('day_pass') : undefined}
             busy={busyPlan === 'day_pass'}
             disabled={busyPlan != null && busyPlan !== 'day_pass'}
           />
@@ -261,11 +333,17 @@ interface PlanCardProps {
   selected: boolean;
   onSelect: () => void;
   onBuy: () => void;
+  onBuyCard?: () => void; // если задан — показываем вторую кнопку «Купить картой»
   busy: boolean;
   disabled: boolean;
 }
 
-function PlanCard({ cfg, selected, onSelect, onBuy, busy, disabled }: PlanCardProps) {
+function PlanCard({ cfg, selected, onSelect, onBuy, onBuyCard, busy, disabled }: PlanCardProps) {
+  // Рублёвая стоимость рядом со Stars — для прозрачности (~1.4 ₽/⭐).
+  // Для day_pass и других — используем RUB_PRICES если есть, иначе считаем из курса.
+  const rubFromPrices = RUB_PRICES[cfg.id];
+  const rubApprox = rubFromPrices ?? Math.round(cfg.price * STARS_TO_RUB);
+
   return (
     <div
       onClick={onSelect}
@@ -291,9 +369,12 @@ function PlanCard({ cfg, selected, onSelect, onBuy, busy, disabled }: PlanCardPr
             }}>{cfg.badge}</span>
           )}
         </div>
-        <div style={styles.priceWrap}>
-          <span style={styles.priceNum}>{cfg.price}</span>
-          <span style={styles.priceUnit}>⭐</span>
+        <div style={styles.priceCol}>
+          <div style={styles.priceWrap}>
+            <span style={styles.priceNum}>{cfg.price}</span>
+            <span style={styles.priceUnit}>⭐</span>
+          </div>
+          <span style={styles.priceRub}>≈ {rubApprox} ₽</span>
         </div>
       </div>
 
@@ -321,6 +402,19 @@ function PlanCard({ cfg, selected, onSelect, onBuy, busy, disabled }: PlanCardPr
       >
         {busy ? 'Открываем оплату…' : `Купить за ${cfg.price} ⭐`}
       </button>
+
+      {onBuyCard && (
+        <button
+          onClick={(e) => { e.stopPropagation(); if (!busy && !disabled) onBuyCard(); }}
+          disabled={busy || disabled}
+          style={{
+            ...styles.buyCardBtn,
+            opacity: (busy || disabled) ? 0.6 : 1,
+          }}
+        >
+          Купить за {rubApprox} ₽ картой
+        </button>
+      )}
     </div>
   );
 }
@@ -406,9 +500,11 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 6,
     verticalAlign: 'middle',
   },
+  priceCol:  { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 },
   priceWrap: { display: 'inline-flex', alignItems: 'baseline', gap: 2 },
   priceNum:  { fontSize: 24, fontWeight: 800, color: 'var(--text-primary)' },
   priceUnit: { fontSize: 18, color: 'var(--coin)' },
+  priceRub:  { fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 },
 
   features: { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 },
   feature: {
@@ -423,6 +519,19 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 12,
     fontSize: 15, fontWeight: 600,
     border: 'none',
+    cursor: 'pointer',
+    transition: 'opacity 160ms',
+  },
+
+  buyCardBtn: {
+    marginTop: 8,
+    width: '100%',
+    padding: '11px 16px',
+    borderRadius: 12,
+    fontSize: 14, fontWeight: 600,
+    background: 'transparent',
+    color: 'var(--text-secondary)',
+    border: '1px solid var(--border-default)',
     cursor: 'pointer',
     transition: 'opacity 160ms',
   },

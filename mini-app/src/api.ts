@@ -125,6 +125,7 @@ export interface MeUser {
   daily_limit?: number;
   onboarding_done?: boolean;
   questionnaire_done?: boolean;
+  tutorial_done?: boolean;
   user_profile?: UserProfile | null;
   requests_count?: number;
   simulations_count?: number;
@@ -161,6 +162,7 @@ export async function updateMe(payload: {
   user_profile?: UserProfile;
   onboarding_done?: boolean;
   questionnaire_done?: boolean;
+  tutorial_done?: boolean;
 }): Promise<MeResponse> {
   return fetchAuthed<MeResponse>('/users/me', {
     method: 'PUT',
@@ -552,6 +554,27 @@ export interface StarsPricesResponse {
 /** Получить актуальные цены тарифов в Stars (XTR). */
 export async function getStarsPrices(): Promise<StarsPricesResponse> {
   return fetchAuthed<StarsPricesResponse>('/payments/prices');
+}
+
+// ── ЮКасса — оплата картой (Phase I) ────────────────────────────────────────
+
+export interface YookassaInvoiceResponse {
+  ok: boolean;
+  confirmation_url?: string;
+  payment_id?: string;
+  error?: string;
+}
+
+/**
+ * Создать ЮКасса-платёж и получить confirmation_url для открытия в TG WebView.
+ * После успешной оплаты webhook ЮКассы активирует подписку асинхронно —
+ * фронт делает polling /users/subscription пока tier не сменится с free.
+ */
+export async function createYookassaInvoice(plan: StarsPlan): Promise<YookassaInvoiceResponse> {
+  return fetchAuthed<YookassaInvoiceResponse>('/payments/yookassa/invoice', {
+    method: 'POST',
+    body: JSON.stringify({ plan }),
+  });
 }
 
 export interface PromoApplyResponse {

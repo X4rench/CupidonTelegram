@@ -12,6 +12,7 @@ import { Layout } from '../components/Layout';
 import { Card } from '../components/Card';
 import { Chip } from '../components/Chip';
 import { GradientButton } from '../components/GradientButton';
+import { DifficultySlider } from '../components/DifficultySlider';
 import { startSimulator, ApiError } from '../api';
 import { storage } from '../utils/storage';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
@@ -201,19 +202,8 @@ export function SimulatorScreen() {
         </Section>
 
         {/* Сложность */}
-        <Section title={`Сложность: ${difficulty}/10`}>
-          <input
-            type="range"
-            min={1}
-            max={10}
-            value={difficulty}
-            onChange={e => setDifficulty(Number(e.target.value))}
-            style={styles.slider}
-          />
-          <div style={styles.diffLabels}>
-            <span style={{ color: 'var(--status-positive)', fontSize: 11 }}>Она заинтересована</span>
-            <span style={{ color: 'var(--status-negative)', fontSize: 11 }}>Холодна / нейтральна</span>
-          </div>
+        <Section title="Сложность">
+          <DifficultySlider value={difficulty} onChange={setDifficulty} min={1} max={10} />
         </Section>
 
         {errMsg && (
@@ -327,10 +317,4 @@ const styles: Record<string, CSSProperties> = {
     outline: 0,
   },
 
-  slider: {
-    width: '100%',
-    accentColor: 'var(--accent-primary)',
-    marginTop: 8,
-  },
-  diffLabels: { display: 'flex', justifyContent: 'space-between', marginTop: 4 },
 };

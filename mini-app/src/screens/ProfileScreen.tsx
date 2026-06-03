@@ -68,13 +68,15 @@ export function ProfileScreen() {
   const username = me?.username ? `@${me.username}` : '';
   const avatarInitials = displayName.trim().split(/\s+/).slice(0, 2).map(s => s[0]?.toUpperCase() ?? '').join('') || '?';
 
+  // Список меню профиля.
+  // ВНИМАНИЕ: пункта «Поддержка»/«Связаться» НЕТ — это AI-режим "Поддержи её"
+  // на главной (карточка → /support). Здесь — только настройки/доки.
+  // «Подписка» вынесена выше отдельной карточкой (см. Subscription CTA).
   const links: { label: string; to: string; icon: string; color?: string }[] = [
-    { label: 'Подписка', to: '/paywall', icon: 'star' },
     { label: 'Промокод', to: '/promo', icon: 'gift' },
     { label: 'Рефералка', to: '/referral', icon: 'users' },
     { label: 'Настройки', to: '/settings', icon: 'settings' },
     { label: 'Туториал', to: '/tutorial', icon: 'play' },
-    { label: 'Поддержи её', to: '/support', icon: 'heart' },
     { label: 'Условия использования', to: '/terms', icon: 'doc' },
     { label: 'Политика конфиденциальности', to: '/privacy', icon: 'shield' },
   ];
@@ -123,7 +125,9 @@ export function ProfileScreen() {
           </button>
         </div>
 
-        {/* Subscription CTA */}
+        {/* Subscription CTA — динамический в зависимости от тира.
+            free → gradient "Купить подписку".
+            basic/premium → secondary "Управление подпиской" + дата окончания. */}
         <Card
           accent
           style={{
@@ -139,19 +143,28 @@ export function ProfileScreen() {
                   <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
                 </svg>
                 <span style={styles.subText}>
-                  {isFree ? 'Нет активной подписки' : `${tierLabel} активна`}
+                  {isFree ? 'Бесплатный тариф' : `${tierLabel} активна${formatExpiresShort(me?.sub_expires_at) ? ` до ${formatExpiresShort(me?.sub_expires_at)}` : ''}`}
                 </span>
               </div>
             </div>
             {isFree && <span style={styles.noPlanBadge}>{tierLabel}</span>}
           </div>
-          <GradientButton
-            full
-            onClick={() => nav('/paywall')}
-            style={{ minHeight: 40, padding: '10px 16px', fontSize: 13 }}
-          >
-            {isFree ? 'Оформить подписку' : 'Управление подпиской'}
-          </GradientButton>
+          {isFree ? (
+            <GradientButton
+              full
+              onClick={() => nav('/paywall')}
+              style={{ minHeight: 40, padding: '10px 16px', fontSize: 13 }}
+            >
+              Купить подписку
+            </GradientButton>
+          ) : (
+            <button
+              onClick={() => { selectionHaptic(); nav('/paywall'); }}
+              style={styles.manageSubBtn}
+            >
+              Управление подпиской
+            </button>
+          )}
         </Card>
 
         {/* Stats grid */}
@@ -213,6 +226,17 @@ export function ProfileScreen() {
 
 function SectionTitle({ children }: { children: ReactNode }) {
   return <h2 style={styles.sectionTitle}>{children}</h2>;
+}
+
+/** Дата окончания подписки → "DD.MM.YYYY" в локали ru-RU. null/invalid → '' */
+function formatExpiresShort(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}.${mm}.${yyyy}`;
 }
 
 function MenuIcon({ name }: { name: string }) {
@@ -287,6 +311,18 @@ const styles: Record<string, CSSProperties> = {
   },
 
   subCard: { marginBottom: 16 },
+  manageSubBtn: {
+    width: '100%',
+    minHeight: 40,
+    padding: '10px 16px',
+    fontSize: 13,
+    fontWeight: 600,
+    background: 'var(--bg-elevated)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--border-default)',
+    borderRadius: 12,
+    cursor: 'pointer',
+  },
   subHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
   subLabel: { fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 },
   subRow: { display: 'flex', alignItems: 'center', gap: 6 },

@@ -131,8 +131,8 @@ function AuthGate() {
     if (redirected.current) return;
     if (!me) return; // /me упал — UI всё равно покажется (free-режим)
 
-    // Не редиректим если юзер уже на splash/onboarding/questionnaire
-    const skipPaths = new Set(['/onboarding', '/questionnaire', '/splash']);
+    // Не редиректим если юзер уже на splash/onboarding/questionnaire/tutorial
+    const skipPaths = new Set(['/onboarding', '/questionnaire', '/splash', '/tutorial']);
     if (skipPaths.has(location.pathname)) return;
 
     if (!me.onboarding_done) {
@@ -141,6 +141,11 @@ function AuthGate() {
     } else if (!me.questionnaire_done) {
       redirected.current = true;
       nav('/questionnaire', { replace: true });
+    } else if (!me.tutorial_done) {
+      // Туториал проигрывается ОДИН раз — после онбординга+анкеты.
+      // tutorial_done выставляется при «Готово»/«Пропустить» в TutorialScreen.
+      redirected.current = true;
+      nav('/tutorial', { replace: true });
     }
   }, [loading, me, nav, location.pathname]);
 
