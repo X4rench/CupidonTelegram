@@ -2,7 +2,11 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <!-- user-scalable=no убран — TG WebView сам блокирует zoom, а этот атрибут
+         на iOS мешает long-press gesture в textarea (для контекстного меню
+         Paste). interactive-widget=resizes-content помогает корректной
+         работе клавиатуры. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="theme-color" content="#0f0f12" />
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />
     <!-- Cache-busting для Telegram WebView (iOS особенно).

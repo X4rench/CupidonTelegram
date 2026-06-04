@@ -143,8 +143,11 @@ export function isClipboardReadSupported(): boolean {
 /** Человекочитаемое сообщение для UI по результату чтения. */
 export function clipboardErrorMessage(reason: ClipboardReadResult['reason']): string {
   switch (reason) {
-    case 'empty':       return 'Буфер обмена пуст. Скопируй текст и попробуй снова.';
-    case 'denied':      return 'Доступ к буферу запрещён. Разреши в настройках iOS.';
+    // На iOS reason="empty" чаще всего означает что user **не нажал** Paste
+    // в системном диалоге iOS «Paste from Other Apps». Поэтому пишем
+    // подсказку про Allow в настройках, а не нейтральное «буфер пуст».
+    case 'empty':       return 'iOS не отдал буфер. Открой Настройки → Telegram → «Paste from Other Apps» → Allow.';
+    case 'denied':      return 'Доступ к буферу запрещён. Открой Настройки → Telegram → «Paste from Other Apps» → Allow.';
     case 'unsupported': return 'Эта версия Telegram не поддерживает чтение буфера. Обнови приложение.';
     case 'timeout':     return 'Не дождались ответа от системы. Попробуй ещё раз.';
     case 'error':       return 'Ошибка чтения буфера. Попробуй ещё раз.';
