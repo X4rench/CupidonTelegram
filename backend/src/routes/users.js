@@ -147,6 +147,98 @@ router.get('/stats', (req, res) => {
   });
 });
 
+// ── GET /api/v1/users/stats/timeline ─────────────────────────────────────────
+// Дневная (последние 30 дней) + месячная (последние 12 месяцев) активность.
+// Используется в Профиле для bar-графиков. Считаем по UTC-датам (как и
+// created_at в таблицах — там datetime('now') = UTC).
+//
+// Возвращает структуру:
+//   {
+//     daily:   [{ date: 'YYYY-MM-DD', requests: N, simulations: N }, ...30],
+//     monthly: [{ month: 'YYYY-MM',    requests: N, simulations: N }, ...12],
+//   }
+// Дни/месяцы возвращаются ВСЕГДА — отсутствующие дни заполняются нулями
+// (иначе bar-chart "схлопывается" — пропадают пустые периоды).
+router.get('/stats/timeline', (req, res) => {
+  let user = db.get('SELECT * FROM users WHERE telegram_user_id = ?', req.tgUser.id);
+  if (!user) {
+    upsertUserFromInitData(req.tgUser, req.startParam);
+    user = db.get('SELECT * FROM users WHERE telegram_user_id = ?', req.tgUser.id);
+  }
+  if (!user) return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
+
+  const tgId = req.tgUser.id;
+
+  // Daily — последние 30 дней. strftime('%Y-%m-%d', created_at) даёт UTC-дату.
+  // analysis_sessions / simulator_sessions — таблицы откуда лежат активности.
+  const analysisDaily = db.all(
+    `SELECT strftime('%Y-%m-%d', created_at) as d, COUNT(*) as c
+       FROM analysis_sessions
+      WHERE telegram_user_id = ? AND created_at >= datetime('now', '-29 days')
+      GROUP BY d`,
+    tgId
+  );
+  const simDaily = db.all(
+    `SELECT strftime('%Y-%m-%d', created_at) as d, COUNT(*) as c
+       FROM simulator_sessions
+      WHERE telegram_user_id = ? AND created_at >= datetime('now', '-29 days')
+      GROUP BY d`,
+    tgId
+  );
+  const analysisMonthly = db.all(
+    `SELECT strftime('%Y-%m', created_at) as m, COUNT(*) as c
+       FROM analysis_sessions
+      WHERE telegram_user_id = ? AND created_at >= datetime('now', '-11 months', 'start of month')
+      GROUP BY m`,
+    tgId
+  );
+  const simMonthly = db.all(
+    `SELECT strftime('%Y-%m', created_at) as m, COUNT(*) as c
+       FROM simulator_sessions
+      WHERE telegram_user_id = ? AND created_at >= datetime('now', '-11 months', 'start of month')
+      GROUP BY m`,
+    tgId
+  );
+
+  const aD = new Map(analysisDaily.map(r => [r.d, r.c]));
+  const sD = new Map(simDaily.map(r => [r.d, r.c]));
+  const aM = new Map(analysisMonthly.map(r => [r.m, r.c]));
+  const sM = new Map(simMonthly.map(r => [r.m, r.c]));
+
+  // Заполняем все 30 дней нулями где нет активности.
+  const today = new Date();
+  const daily = [];
+  for (let i = 29; i >= 0; i--) {
+    const dt = new Date(today.getTime() - i * 86400000);
+    const yyyy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getUTCDate()).padStart(2, '0');
+    const key = `${yyyy}-${mm}-${dd}`;
+    daily.push({
+      date: key,
+      requests: aD.get(key) ?? 0,
+      simulations: sD.get(key) ?? 0,
+    });
+  }
+
+  // 12 месяцев включая текущий.
+  const monthly = [];
+  const cur = new Date(today.getUTCFullYear(), today.getUTCMonth(), 1);
+  for (let i = 11; i >= 0; i--) {
+    const dt = new Date(cur.getFullYear(), cur.getMonth() - i, 1);
+    const yyyy = dt.getFullYear();
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const key = `${yyyy}-${mm}`;
+    monthly.push({
+      month: key,
+      requests: aM.get(key) ?? 0,
+      simulations: sM.get(key) ?? 0,
+    });
+  }
+
+  res.json({ ok: true, daily, monthly });
+});
+
 // ── POST /api/v1/users/claim-tg-bonus ────────────────────────────────────────
 // Подписка на Telegram-канал → +5 бесплатных генераций.
 // В TMA-версии: проверка через флаг user.tg_bonus_claimed (telegram_user_id

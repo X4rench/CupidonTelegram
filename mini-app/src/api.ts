@@ -177,6 +177,22 @@ export async function getStats(): Promise<StatsResponse> {
   return fetchAuthed<StatsResponse>('/users/stats');
 }
 
+/** Дневная (30) и месячная (12) активность для графиков в Профиле. */
+export interface TimelinePoint {
+  date?: string;   // 'YYYY-MM-DD' для daily
+  month?: string;  // 'YYYY-MM' для monthly
+  requests: number;
+  simulations: number;
+}
+export interface StatsTimelineResponse {
+  ok: boolean;
+  daily: TimelinePoint[];
+  monthly: TimelinePoint[];
+}
+export async function getStatsTimeline(): Promise<StatsTimelineResponse> {
+  return fetchAuthed<StatsTimelineResponse>('/users/stats/timeline');
+}
+
 /** Подписка/лимиты — для Paywall (Phase H). */
 export async function getSubscription(): Promise<any> {
   return fetchAuthed<any>('/users/subscription');
