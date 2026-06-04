@@ -10,7 +10,7 @@ import { Card } from '../components/Card';
 import { contactsApi, type Contact } from '../api';
 import { useBackButton } from '../utils/backButton';
 import { selectionHaptic } from '../utils/haptics';
-import { findSimTypazhByName } from '../utils/typazhes';
+import { findSimTypazhByName, cleanTypazhName } from '../utils/typazhes';
 
 interface SimDialog {
   key: string;        // полный storage-key (для passing в чат)
@@ -55,7 +55,7 @@ export function AllDialogsScreen() {
       if (!m) continue;
       const suffix = m[1];
       const underIdx = suffix.indexOf('_');
-      const typazh = underIdx > 0 ? suffix.slice(0, underIdx) : suffix;
+      const typazhRaw = underIdx > 0 ? suffix.slice(0, underIdx) : suffix;
       const place = underIdx > 0 ? suffix.slice(underIdx + 1) : '';
       try {
         const raw = localStorage.getItem(k);
@@ -65,6 +65,9 @@ export function AllDialogsScreen() {
         const lastHer = [...msgs].reverse().find((m: any) => m.from === 'her');
         const lastAny = msgs[msgs.length - 1];
         if (!msgs.length) continue;
+        // Имя сначала из data.typazh (правильно при сохранении), потом из
+        // суффикса (legacy fallback). Чистим от лидирующих цифр/мусора.
+        const typazh = cleanTypazhName(data.typazh || typazhRaw);
         const t = findSimTypazhByName(typazh);
         out.push({
           key: k,

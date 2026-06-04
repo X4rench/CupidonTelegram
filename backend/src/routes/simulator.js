@@ -183,10 +183,15 @@ router.post('/finish', async (req, res) => {
       'UPDATE simulator_sessions SET completed = 1, score = ?, result_json = ?, result_hash = ? WHERE id = ?',
       result.score, JSON.stringify(result), msgHash, sid
     );
-    // H3 — PII hygiene: после успешного анализа очищаем raw переписку.
-    // result_json содержит score+result, который и так показывается юзеру.
-    // history больше не нужен для повторного анализа (есть idempotency по result_hash).
-    db.run('UPDATE simulator_sessions SET messages = ? WHERE id = ?', '[]', sid);
+    // Раньше тут было `messages='[]'` (PII hygiene). Убрано:
+    // 1) Если юзер заходил повторно в чат после finish, БД была пуста,
+    //    и при следующем finish валилось «слишком короткий диалог».
+    // 2) Если юзер дописывал — AI разбирал только новые сообщения,
+    //    забыв всю предыдущую историю.
+    // Полная история в БД нужна для корректного повторного разбора.
+    // Стоимость допольнительного хранения нулевая (~1KB на сессию).
+    // Стоимость повторного AI-разбора всей истории — ~0.08₽ (insignificant).
+    // Idempotency по result_hash защищает от повторного разбора без изменений.
     if (!wasCompleted) {
       db.run('UPDATE users SET simulations_count = simulations_count + 1 WHERE telegram_user_id = ?', req.tgUser.id);
     }
@@ -217,7 +222,9 @@ router.post('/analyze', async (req, res) => {
   if (history.length < 2)
     return res.json({ ok: true, result: { engagement: 50, interest: 50, quality: 50, recommendation: 'Напиши первое сообщение, чтобы получить разбор её реакции.' } });
 
-  const dialogText = history.slice(-10)
+  // Берём всю историю (раньше slice(-10) — обрезали для экономии токенов;
+  // для quick-аналитики разница в стоимости незначительна, ~$0.0003 на разбор).
+  const dialogText = history
     .map(m => `${m.from === 'me' ? 'Ты' : session.typazh}: ${m.text}`)
     .join('\n');
 

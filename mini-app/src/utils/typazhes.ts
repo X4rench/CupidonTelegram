@@ -88,3 +88,27 @@ export const PLACES_DEFAULT: PlaceOpt[] = [
 export function findSimTypazhByName(name: string): SimTypazh | undefined {
   return TYPAZHES_SIM.find(t => t.name === name);
 }
+
+/**
+ * Очистить имя типажа от служебного мусора, которое могло попасть в
+ * localStorage (старые версии, регрессии). Убираем:
+ *   - ведущие/висящие подчёркивания
+ *   - ведущие цифры с пробелом ("0 Скромная" → "Скромная")
+ *   - ведущие "0" без разделителя если дальше идёт буква ("0Скромная" → "Скромная")
+ * Если строка после чистки пустая — возвращаем fallback 'AI'.
+ *
+ * Используется в SimulatorChatScreen / AllDialogsScreen / SimulatorScreen
+ * чтобы не показывать «0 Скромная» если в старой записи storage остался
+ * грязный typazhKey.
+ */
+export function cleanTypazhName(raw: string | null | undefined): string {
+  if (!raw) return 'AI';
+  let s = String(raw).trim();
+  // Убираем ведущие/завершающие подчёркивания
+  s = s.replace(/^_+|_+$/g, '');
+  // "0 Имя" / "0Имя" → "Имя"
+  s = s.replace(/^\d+\s*(?=[A-Za-zА-Яа-яЁё])/, '');
+  // На всякий случай повторный trim
+  s = s.trim();
+  return s || 'AI';
+}

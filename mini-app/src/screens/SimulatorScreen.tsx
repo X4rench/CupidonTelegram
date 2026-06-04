@@ -20,6 +20,7 @@ import {
   TYPAZHES_SIM,
   PLACES_DEFAULT,
   CUSTOM_PLACE_ID,
+  cleanTypazhName,
   type SimTypazh,
 } from '../utils/typazhes';
 import { loadCustomGirls, removeCustomGirl, type CustomGirl } from '../utils/customGirls';
@@ -69,7 +70,7 @@ export function SimulatorScreen() {
       if (!match) continue;
       const suffix = match[1];
       const underIdx = suffix.indexOf('_');
-      const typazh = underIdx > 0 ? suffix.slice(0, underIdx) : suffix;
+      const typazhRaw = underIdx > 0 ? suffix.slice(0, underIdx) : suffix;
       const place = underIdx > 0 ? suffix.slice(underIdx + 1) : '';
       try {
         const raw = localStorage.getItem(k);
@@ -78,6 +79,9 @@ export function SimulatorScreen() {
         const msgs = data.messages || [];
         if (!msgs.length) continue;
         const lastHer = [...msgs].reverse().find(m => m.from === 'her');
+        // Имя: предпочитаем data.typazh (правильно при свежем сохранении),
+        // fallback на префикс ключа. Чистим от лидирующих цифр/мусора.
+        const typazh = cleanTypazhName(data.typazh || typazhRaw);
         out.push({
           key: `sim_session_${suffix}`,
           typazh,

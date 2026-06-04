@@ -15,10 +15,11 @@ import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { Card } from '../components/Card';
 import { useMe } from '../contexts/MeContext';
-import { getStats } from '../api';
+import { contactsApi, getStats, type Contact } from '../api';
 import { impactHaptic, selectionHaptic } from '../utils/haptics';
 import { getTgUser } from '../auth';
 import { getTipOfDay } from '../utils/dailyTips';
+import { cleanTypazhName } from '../utils/typazhes';
 
 interface QuickAction {
   key: string;
@@ -69,11 +70,30 @@ interface Stats {
   daysInApp: number;
 }
 
+interface ActiveDialog {
+  kind: 'wing' | 'sim';
+  title: string;
+  subtitle: string;
+  to: string;
+  initial: string;
+  gradient: [string, string];
+}
+
+const GRAD_POOL: [string, string][] = [
+  ['#F43F5E', '#EC4899'],
+  ['#A855F7', '#6366F1'],
+  ['#22C55E', '#06B6D4'],
+  ['#EF4444', '#F59E0B'],
+  ['#6366F1', '#A855F7'],
+  ['#EC4899', '#F59E0B'],
+];
+
 export function HomeScreen() {
   const { me } = useMe();
   const nav = useNavigate();
   const tgUser = getTgUser();
   const [stats, setStats] = useState<Stats>({ requests: 0, simulations: 0, avgScore: null, daysInApp: 1 });
+  const [activeDialogs, setActiveDialogs] = useState<ActiveDialog[]>([]);
 
   useEffect(() => {
     getStats()
@@ -87,6 +107,60 @@ export function HomeScreen() {
         });
       })
       .catch(() => {});
+
+    // Активные диалоги: контакты Стрелы (из API) + симуляторные сессии
+    // (из localStorage). Сливаем и показываем максимум 3 свежих.
+    const loadDialogs = async () => {
+      const dialogs: ActiveDialog[] = [];
+
+      // Wing-контакты
+      try {
+        const res = await contactsApi.getAll();
+        if (res?.ok && res.contacts) {
+          (res.contacts as Contact[]).slice(0, 5).forEach((c, i) => {
+            dialogs.push({
+              kind: 'wing',
+              title: c.name,
+              subtitle: c.typazh || 'Стрела · разбор',
+              to: `/wing?contact=${c.id}`,
+              initial: (c.name?.trim() || '?').slice(0, 1).toUpperCase(),
+              gradient: GRAD_POOL[i % GRAD_POOL.length],
+            });
+          });
+        }
+      } catch (_) {}
+
+      // Симуляторные сессии из localStorage
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k) continue;
+        const m = /^cupidon:[^:]+:sim_session_(.+)$/.exec(k);
+        if (!m) continue;
+        try {
+          const raw = localStorage.getItem(k);
+          if (!raw) continue;
+          const data = JSON.parse(raw);
+          if (!data.messages?.length) continue;
+          const suffix = m[1];
+          const underIdx = suffix.indexOf('_');
+          const typazhRaw = underIdx > 0 ? suffix.slice(0, underIdx) : suffix;
+          const typazh = cleanTypazhName(data.typazh || typazhRaw);
+          const place  = underIdx > 0 ? suffix.slice(underIdx + 1) : '';
+          dialogs.push({
+            kind: 'sim',
+            title: typazh,
+            subtitle: place ? `Симулятор · ${place}` : 'Симулятор',
+            to: `/simulator/chat/${encodeURIComponent(data.session_id)}?key=${encodeURIComponent('sim_session_' + suffix)}`,
+            initial: (typazh.trim() || '?').slice(0, 1).toUpperCase(),
+            gradient: GRAD_POOL[(dialogs.length + 2) % GRAD_POOL.length],
+          });
+        } catch (_) {}
+      }
+
+      // Показываем до 3 диалогов на главной — остальное в /all-dialogs
+      setActiveDialogs(dialogs.slice(0, 3));
+    };
+    loadDialogs();
   }, []);
 
   const greetingName = me?.user_profile?.name || me?.first_name || 'друг';
@@ -137,14 +211,48 @@ export function HomeScreen() {
           </div>
         </section>
 
-        {/* Активные диалоги — заглушка */}
+        {/* Активные диалоги */}
         <section style={styles.section}>
           <SectionHeader title="Активные диалоги" linkText="Все" onLinkClick={() => nav('/all-dialogs')} />
-          <Card style={styles.emptyDialogs}>
-            <p style={styles.emptyText}>
-              Пока нет диалогов. Открой <b style={{ color: 'var(--text-accent)' }}>Стрелу</b> и проанализируй первую переписку.
-            </p>
-          </Card>
+          {activeDialogs.length === 0 ? (
+            <Card style={styles.emptyDialogs}>
+              <p style={styles.emptyText}>
+                Пока нет диалогов. Открой <b style={{ color: 'var(--text-accent)' }}>Стрелу</b> и проанализируй первую переписку.
+              </p>
+            </Card>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {activeDialogs.map((d, i) => (
+                <Card
+                  key={`${d.kind}-${i}`}
+                  onClick={() => { selectionHaptic(); nav(d.to); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12 }}
+                >
+                  <div style={{
+                    width: 44, height: 44, borderRadius: 22,
+                    background: `linear-gradient(135deg, ${d.gradient[0]}, ${d.gradient[1]})`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#fff', fontWeight: 700, fontSize: 16,
+                    flexShrink: 0,
+                  }}>{d.initial}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 14, fontWeight: 600, color: 'var(--text-primary)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{d.title}</div>
+                    <div style={{
+                      fontSize: 11, color: 'var(--text-muted)', marginTop: 2,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{d.subtitle}</div>
+                  </div>
+                  <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
+                       stroke="var(--text-muted)" strokeWidth={2}>
+                    <polyline points="9,18 15,12 9,6" />
+                  </svg>
+                </Card>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* Прогресс */}

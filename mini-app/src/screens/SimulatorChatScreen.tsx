@@ -30,7 +30,7 @@ import {
 import { storage } from '../utils/storage';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
-import { findSimTypazhByName } from '../utils/typazhes';
+import { findSimTypazhByName, cleanTypazhName } from '../utils/typazhes';
 
 interface ChatMsg { from: 'me' | 'her'; text: string }
 interface StoredSession {
@@ -69,7 +69,7 @@ export function SimulatorChatScreen() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisMsgCount, setAnalysisMsgCount] = useState(-1);
 
-  const typazhName = initial?.typazh || 'AI';
+  const typazhName = cleanTypazhName(initial?.typazh);
   const placeName = initial?.place || '';
   const typazhInfo = findSimTypazhByName(typazhName);
   const typeColor = initial?.type_color || typazhInfo?.color || 'rgba(168,85,247';
