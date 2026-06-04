@@ -15,8 +15,8 @@
 //   - Нет ввода admin_secret (TMA initData достаточно).
 //   - Pagination нет — limit=100 хватает.
 // ═══════════════════════════════════════════════════════════════
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useMe } from '../contexts/MeContext';
 import { useBackButton } from '../utils/backButton';
 import { selectionHaptic, notificationHaptic, impactHaptic } from '../utils/haptics';
@@ -26,30 +26,42 @@ import { SecondaryButton } from '../components/SecondaryButton';
 import { Layout } from '../components/Layout';
 import {
   adminApi,
+  partnerAdminApi,
   type AdminPrompt,
   type AdminStats,
   type AdminRequestLog,
   type AdminAuditEntry,
   type AdminPromptTestResp,
+  type AdminPartnerRow,
+  type AdminPartnersDashboardResp,
 } from '../api';
 
-type Tab = 'stats' | 'prompts' | 'subs' | 'logs' | 'audit';
+type Tab = 'stats' | 'prompts' | 'subs' | 'logs' | 'audit' | 'partners';
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'stats',   label: 'Статистика' },
-  { id: 'subs',    label: 'Подписки' },
-  { id: 'prompts', label: 'Промпты' },
-  { id: 'logs',    label: 'Логи' },
-  { id: 'audit',   label: 'Audit' },
+  { id: 'stats',    label: 'Статистика' },
+  { id: 'subs',     label: 'Подписки' },
+  { id: 'partners', label: 'Партнёры' },
+  { id: 'prompts',  label: 'Промпты' },
+  { id: 'logs',     label: 'Логи' },
+  { id: 'audit',    label: 'Audit' },
 ];
 
 export function AdminScreen() {
   const nav = useNavigate();
+  const location = useLocation();
   const onBack = useCallback(() => nav(-1), [nav]);
   useBackButton(onBack);
 
   const { me, loading } = useMe();
-  const [tab, setTab] = useState<Tab>('stats');
+
+  // Если зашли на /admin/partners — начинаем с таба «Партнёры»
+  const initialTab: Tab = useMemo(() => {
+    if (location.pathname.startsWith('/admin/partners')) return 'partners';
+    return 'stats';
+  }, [location.pathname]);
+
+  const [tab, setTab] = useState<Tab>(initialTab);
 
   if (loading) {
     return (
@@ -88,11 +100,12 @@ export function AdminScreen() {
       </div>
 
       <div style={styles.content}>
-        {tab === 'stats'   && <StatsTab />}
-        {tab === 'subs'    && <SubsTab />}
-        {tab === 'prompts' && <PromptsTab />}
-        {tab === 'logs'    && <LogsTab />}
-        {tab === 'audit'   && <AuditTab />}
+        {tab === 'stats'    && <StatsTab />}
+        {tab === 'subs'     && <SubsTab />}
+        {tab === 'partners' && <PartnersTab />}
+        {tab === 'prompts'  && <PromptsTab />}
+        {tab === 'logs'     && <LogsTab />}
+        {tab === 'audit'    && <AuditTab />}
       </div>
     </div>
   );
@@ -743,6 +756,377 @@ function tryPretty(raw: string): string {
   try { return JSON.stringify(JSON.parse(raw), null, 2); }
   catch { return raw; }
 }
+
+// ─── Partners Tab ───────────────────────────────────────────────────────────
+
+function PartnersTab() {
+  const nav = useNavigate();
+  const [partners, setPartners] = useState<AdminPartnerRow[]>([]);
+  const [dashboard, setDashboard] = useState<AdminPartnersDashboardResp | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'paused' | 'archived'>('all');
+  const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [creatorOpen, setCreatorOpen] = useState(false);
+
+  // Форма создания
+  const [tgId, setTgId] = useState('');
+  const [code, setCode] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [commissionPct, setCommissionPct] = useState(50);
+  const [notes, setNotes] = useState('');
+  const [payoutDetails, setPayoutDetails] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [list, dash] = await Promise.all([
+        partnerAdminApi.list({
+          status: statusFilter === 'all' ? undefined : statusFilter,
+          q: query.trim() || undefined,
+        }),
+        partnerAdminApi.getDashboard().catch(() => null),
+      ]);
+      setPartners(list.partners || []);
+      if (dash) setDashboard(dash);
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось загрузить список');
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, query]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const resetForm = () => {
+    setTgId(''); setCode(''); setDisplayName('');
+    setCommissionPct(50); setNotes(''); setPayoutDetails('');
+  };
+
+  const onCreate = async () => {
+    const tg = parseInt(tgId.trim(), 10);
+    if (!Number.isFinite(tg)) {
+      alert('TG ID должен быть числом');
+      return;
+    }
+    const codeNorm = code.trim().toLowerCase();
+    if (!/^[a-z0-9_]{3,30}$/.test(codeNorm)) {
+      alert('Код: 3-30 символов, только a-z, 0-9, _');
+      return;
+    }
+    if (!displayName.trim()) {
+      alert('ФИО обязательно');
+      return;
+    }
+    setCreating(true);
+    try {
+      let parsedDetails: Record<string, any> | undefined;
+      if (payoutDetails.trim()) {
+        // Пробуем распарсить как JSON, иначе кладём как { raw: "..." }
+        try { parsedDetails = JSON.parse(payoutDetails); }
+        catch { parsedDetails = { raw: payoutDetails.trim() }; }
+      }
+      const res = await partnerAdminApi.create({
+        telegram_user_id: tg,
+        code: codeNorm,
+        display_name: displayName.trim(),
+        commission_pct: commissionPct,
+        payout_details: parsedDetails,
+        notes: notes.trim() || undefined,
+      });
+      if (res.ok) {
+        notificationHaptic('success');
+        resetForm();
+        setCreatorOpen(false);
+        await load();
+      } else {
+        notificationHaptic('error');
+        alert(res.error || 'Не удалось создать');
+      }
+    } catch (e: any) {
+      notificationHaptic('error');
+      alert(e?.message || 'Ошибка создания');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const totals = dashboard?.totals;
+  const top5 = dashboard?.top5 || [];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Сводка */}
+      {totals && (
+        <Card>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+            📊 Сводка
+          </div>
+          <SummaryRow label="Активных партнёров" value={String(totals.active_partners)} />
+          <SummaryRow label="Всего привлечено" value={String(totals.total_referrals)} />
+          <SummaryRow label="Доход (за 30 д.)" value={`${formatRub(totals.gross_revenue)} ₽`} />
+          <SummaryRow label="Партнёрам начислено" value={`${formatRub(totals.commission_paid_out)} ₽`} accent />
+          <SummaryRow label="К выплате прямо сейчас" value={`${formatRub(totals.available_kopecks)} ₽`} accent />
+          <SummaryRow label="Pending payouts" value={String(totals.pending_payouts)} />
+        </Card>
+      )}
+
+      {/* Top-5 */}
+      {top5.length > 0 && (
+        <Card>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+            🏆 Top-5
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {top5.map((t) => (
+              <button
+                key={t.partner_id}
+                onClick={() => { selectionHaptic(); nav(`/admin/partners/${t.partner_id}`); }}
+                style={topRowStyle}
+              >
+                <span style={topRankStyle}>{t.rank}</span>
+                <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)', textAlign: 'left' }}>
+                  {t.display_name}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', marginRight: 6 }}>{t.code}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-accent)' }}>
+                  {formatRub(t.total)} ₽
+                </span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Create button + creator inline */}
+      {!creatorOpen && (
+        <GradientButton onClick={() => { impactHaptic('medium'); setCreatorOpen(true); }} full>
+          + Добавить партнёра
+        </GradientButton>
+      )}
+
+      {creatorOpen && (
+        <Card>
+          <div style={{ fontWeight: 700, marginBottom: 10, color: 'var(--text-primary)' }}>
+            Создать партнёра
+          </div>
+          <Field label="TG ID партнёра">
+            <input
+              type="number"
+              value={tgId}
+              onChange={(e) => setTgId(e.target.value)}
+              placeholder="794285476"
+              style={styles.input}
+              inputMode="numeric"
+            />
+          </Field>
+          <div style={{ height: 8 }} />
+          <Field label="Код (a-z, 0-9, _; 3-30 символов)">
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value.toLowerCase())}
+              placeholder="anna_dating"
+              style={styles.input}
+              maxLength={30}
+            />
+          </Field>
+          <div style={{ height: 8 }} />
+          <Field label="ФИО / Имя для отчётов">
+            <input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Анна Иванова"
+              style={styles.input}
+              maxLength={120}
+            />
+          </Field>
+          <div style={{ height: 8 }} />
+          <Field label={`% комиссии: ${commissionPct}%`}>
+            <input
+              type="range"
+              min={10} max={80}
+              value={commissionPct}
+              onChange={(e) => setCommissionPct(parseInt(e.target.value, 10))}
+              style={{ width: '100%' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
+              <span>10%</span><span>50%</span><span>80%</span>
+            </div>
+          </Field>
+          <div style={{ height: 8 }} />
+          <Field label="Заметки (опционально)">
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Канал, аудитория, договорённости…"
+              style={{ ...styles.textarea, minHeight: 60 }}
+              maxLength={2000}
+            />
+          </Field>
+          <div style={{ height: 8 }} />
+          <Field label="Реквизиты для выплат (опционально, JSON или текст)">
+            <textarea
+              value={payoutDetails}
+              onChange={(e) => setPayoutDetails(e.target.value)}
+              placeholder={'{"bank":"Tinkoff","card":"5536...0000"}'}
+              style={{ ...styles.textarea, minHeight: 50, fontFamily: 'ui-monospace, monospace' }}
+            />
+          </Field>
+          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+            <SecondaryButton onClick={() => { setCreatorOpen(false); resetForm(); }} full disabled={creating}>
+              Отмена
+            </SecondaryButton>
+            <GradientButton onClick={onCreate} loading={creating} full>
+              Создать
+            </GradientButton>
+          </div>
+        </Card>
+      )}
+
+      {/* Search + status filter */}
+      <Card>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск: код, имя, TG ID…"
+          style={styles.input}
+        />
+        <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+          {(['all', 'active', 'paused', 'archived'] as const).map(s => (
+            <button
+              key={s}
+              onClick={() => { selectionHaptic(); setStatusFilter(s); }}
+              style={{
+                ...styles.tab,
+                padding: '6px 12px',
+                fontSize: 11,
+                borderColor: statusFilter === s ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                background: statusFilter === s ? 'var(--accent-soft)' : 'transparent',
+                color: statusFilter === s ? 'var(--text-accent)' : 'var(--text-muted)',
+              }}
+            >
+              {s === 'all' ? 'Все' : s === 'active' ? 'Active' : s === 'paused' ? 'Paused' : 'Archived'}
+            </button>
+          ))}
+          <button
+            onClick={load}
+            style={{
+              ...styles.tab,
+              padding: '6px 12px',
+              fontSize: 11,
+              borderColor: 'var(--border-subtle)',
+              background: 'transparent',
+              color: 'var(--text-muted)',
+              marginLeft: 'auto',
+            }}
+          >
+            Применить
+          </button>
+        </div>
+      </Card>
+
+      {/* List */}
+      {loading && <LoadingNote>Загружаем партнёров…</LoadingNote>}
+      {error && <ErrorBlock message={error} onRetry={load} />}
+      {!loading && !error && partners.length === 0 && (
+        <EmptyNote>Нет партнёров под фильтром.</EmptyNote>
+      )}
+      {!loading && !error && partners.map((p) => (
+        <button
+          key={p.id}
+          onClick={() => { selectionHaptic(); nav(`/admin/partners/${p.id}`); }}
+          style={partnerCardStyle}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+              {p.display_name}
+            </span>
+            <StatusChip status={p.status} />
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-accent)', marginBottom: 8, fontFamily: 'ui-monospace, monospace' }}>
+            {p.code}
+          </div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)' }}>
+            <span>Привёл <strong style={{ color: 'var(--text-primary)' }}>{p.referrals}</strong></span>
+            <span>Заработал <strong style={{ color: 'var(--text-primary)' }}>{formatRub(p.lifetime_earned)} ₽</strong></span>
+            <span>К выплате <strong style={{ color: 'var(--text-accent)' }}>{formatRub(p.available_kopecks)} ₽</strong></span>
+            <span>Ставка <strong style={{ color: 'var(--text-primary)' }}>{p.commission_pct}%</strong></span>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SummaryRow({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+      <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</span>
+      <span style={{ fontSize: 14, fontWeight: 700, color: accent ? 'var(--text-accent)' : 'var(--text-primary)' }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function StatusChip({ status }: { status: string }) {
+  const map: Record<string, { bg: string; color: string; label: string }> = {
+    active:   { bg: 'rgba(34,197,94,0.16)', color: 'var(--status-positive)', label: 'Active' },
+    paused:   { bg: 'rgba(245,158,11,0.16)', color: 'var(--status-warning)', label: 'Paused' },
+    archived: { bg: 'rgba(113,113,122,0.20)', color: 'var(--text-muted)', label: 'Archived' },
+  };
+  const v = map[status] || { bg: 'var(--bg-elevated)', color: 'var(--text-muted)', label: status };
+  return (
+    <span style={{
+      padding: '2px 8px',
+      borderRadius: 6,
+      fontSize: 10, fontWeight: 700,
+      background: v.bg,
+      color: v.color,
+      textTransform: 'uppercase',
+      letterSpacing: 0.4,
+    }}>
+      {v.label}
+    </span>
+  );
+}
+
+function formatRub(kopecks: number): string {
+  const rub = Math.round(kopecks / 100);
+  return rub.toLocaleString('ru-RU');
+}
+
+const topRowStyle: CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10,
+  padding: '8px 10px',
+  background: 'var(--bg-elevated)',
+  borderRadius: 8,
+  border: 'none',
+  cursor: 'pointer',
+  width: '100%',
+};
+
+const topRankStyle: CSSProperties = {
+  width: 22, height: 22, borderRadius: 11,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  background: 'var(--accent-soft)',
+  color: 'var(--text-accent)',
+  fontSize: 11, fontWeight: 700,
+  flexShrink: 0,
+};
+
+const partnerCardStyle: CSSProperties = {
+  display: 'block',
+  width: '100%',
+  textAlign: 'left',
+  padding: 14,
+  borderRadius: 14,
+  border: '1px solid var(--border-subtle)',
+  background: 'var(--bg-card)',
+  cursor: 'pointer',
+};
 
 // ─── UI helpers ─────────────────────────────────────────────────────────────
 

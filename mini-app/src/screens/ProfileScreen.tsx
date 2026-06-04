@@ -175,6 +175,42 @@ export function ProfileScreen() {
           )}
         </Card>
 
+        {/* Partner cabinet CTA — показываем только партнёрам */}
+        {me?.is_partner && (
+          <Card
+            accent
+            onClick={() => { selectionHaptic(); nav('/partner-cabinet'); }}
+            style={{
+              marginBottom: 16,
+              backgroundImage: 'linear-gradient(135deg, rgba(34,197,94,0.10), rgba(168,85,247,0.10))',
+              borderColor: 'var(--border-accent)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 12,
+                background: 'var(--gradient-accent)',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+                fontSize: 20,
+              }}>
+                💼
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Кабинет партнёра
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  Управляй рефералами и выплатами
+                </div>
+              </div>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth={2}>
+                <polyline points="9,18 15,12 9,6" />
+              </svg>
+            </div>
+          </Card>
+        )}
+
         {/* Stats grid */}
         <SectionTitle>Статистика</SectionTitle>
         <div style={styles.statsGrid}>

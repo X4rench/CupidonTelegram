@@ -55,6 +55,10 @@ import { PrivacyScreen } from './screens/PrivacyScreen';
 import { AdminScreen } from './screens/AdminScreen';
 import { ThemeScreen } from './screens/ThemeScreen';
 
+// Phase L — Partner program
+import { PartnerCabinetScreen } from './screens/PartnerCabinetScreen';
+import { AdminPartnerDetailScreen } from './screens/AdminPartnerDetailScreen';
+
 export default function App() {
   return (
     <MeProvider>
@@ -98,6 +102,9 @@ export default function App() {
             <Route path="/terms"                element={<TermsScreen />} />
             <Route path="/privacy"              element={<PrivacyScreen />} />
             <Route path="/admin"                element={<AdminScreen />} />
+            <Route path="/admin/partners"       element={<AdminScreen />} />
+            <Route path="/admin/partners/:id"   element={<AdminPartnerDetailScreen />} />
+            <Route path="/partner-cabinet"      element={<PartnerCabinetScreen />} />
 
             {/* 404 fallback */}
             <Route path="*" element={<HomeScreen />} />
