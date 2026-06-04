@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
     <meta name="theme-color" content="#0f0f12" />
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <!-- Cache-busting для Telegram WebView (iOS особенно).
+         index.html не кэшируем — он маленький, и в нём ссылки на hash'ed
+         bundle (index-XXX.js). Если index.html свежий, новые ссылки на
+         бандл тянутся автоматически. Файлы /assets/ TG кэширует как обычно
+         по hash в имени — это не мешает. -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Купидон</title>
     <!-- Telegram WebApp script — self-hosted был бы безопаснее (см. DEPLOYMENT_PLAYBOOK §13),
          но для старта подойдёт CDN. Поменяем на self-hosted в Phase L.

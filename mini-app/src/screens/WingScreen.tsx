@@ -389,7 +389,10 @@ export function WingScreen() {
                 onClick={() => { selectionHaptic(); setActiveContactId(id); }}
                 style={{ ...styles.tab, ...(active ? styles.tabActive : {}) }}
               >
-                {c.is_pinned && <PinIcon size={10} color={active ? '#fff' : 'var(--text-accent)'} />}
+                {/* !! важно: c.is_pinned приходит из SQLite как 0|1 (число).
+                    Чистый `c.is_pinned && <X/>` рендерит «0» в DOM при is_pinned=0
+                    — это и был «0 перед именем» в табах контактов Стрелы. */}
+                {c.is_pinned ? <PinIcon size={10} color={active ? '#fff' : 'var(--text-accent)'} /> : null}
                 <span style={active ? styles.tabActiveText : styles.tabText}>{c.name}</span>
               </button>
             );
