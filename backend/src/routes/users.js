@@ -11,6 +11,7 @@ import db, { upsertUserFromInitData, getActiveSubscription, getUserTier } from '
 import { buildLimitInfo } from '../utils/limits.js';
 import { getAdminIds } from '../middleware/auth.js';
 import { callBotApi } from '../services/bot-api.js';
+import { attributePartnerReferral, isPartner } from '../utils/partnerHooks.js';
 
 const router = Router();
 
@@ -38,6 +39,7 @@ function buildUserResponse(user) {
     simulations_count:  user.simulations_count,
     tg_bonus_claimed:   !!user.tg_bonus_claimed,
     is_admin:           adminIds.includes(user.telegram_user_id),
+    is_partner:         isPartner(user.telegram_user_id),
     created_at:         user.created_at,
     ...buildLimitInfo(user),
   };
@@ -49,8 +51,15 @@ function safeJsonParse(s) {
 
 // ── GET /api/v1/users/me ──────────────────────────────────────────────────────
 // Первый запрос фронта — заодно upsert юзера из initData.
+// Если юзер новый и пришёл через реф-ссылку (start_param=p_<code>), пытаемся
+// атрибутировать (first-touch). Существующие юзера без атрибуции — protected,
+// повторный заход по реф-ссылке их не зацепит.
 router.get('/me', (req, res) => {
   const { user, isNew } = upsertUserFromInitData(req.tgUser, req.startParam);
+  if (isNew && req.startParam) {
+    try { attributePartnerReferral(user.telegram_user_id, req.startParam); }
+    catch (e) { console.warn('[users/me] partner attribution failed:', e?.message); }
+  }
   res.json({ ok: true, user: buildUserResponse(user), is_new: isNew });
 });
 

@@ -15,6 +15,11 @@
 // предупреждение раз в N минут).
 // ═══════════════════════════════════════════════════════════════
 import db from '../db/index.js';
+import {
+  registerCommissionFromPayment,
+  releasePendingCommissions,
+  refreshDailyStats,
+} from './partnerHooks.js';
 
 const PLAN_DURATION_DAYS = {
   basic:    30,
@@ -22,6 +27,13 @@ const PLAN_DURATION_DAYS = {
   // day_pass — НЕ создаёт subscription (новая концепция: +N запросов к bonus_quota)
   day_pass: 0,
 };
+
+function durationDaysByPeriod(plan, period) {
+  if (plan === 'day_pass') return 0;
+  if (period === 'yearly')    return 365;
+  if (period === 'quarterly') return 90;
+  return 30;
+}
 
 const DAY_PASS_BONUS_QUOTA = parseInt(process.env.DAY_PASS_BONUS_QUOTA, 10) || 100;
 
@@ -63,6 +75,7 @@ async function reconcileOnePayment(record, auth) {
   // succeeded — активируем подписку
   const metadata = yk.metadata || {};
   const plan = metadata.plan;
+  const period = metadata.period || 'monthly';
   const tgUserId = parseInt(metadata.tg_user_id, 10);
   if (!plan || !(plan in PLAN_DURATION_DAYS) || !tgUserId) {
     console.error('[reconcile] bad metadata in succeeded payment', { chargeId, metadata });
@@ -79,8 +92,10 @@ async function reconcileOnePayment(record, auth) {
   const currency = yk.amount?.currency || 'RUB';
   const rawJson = JSON.stringify(yk).slice(0, 8000);
 
+  let paymentRowId = null;
+
   if (plan === 'day_pass') {
-    // НОВАЯ концепция day_pass — +N запросов к bonus_quota, без subscription
+    // day_pass — +N запросов к bonus_quota, без subscription
     db.transaction(() => {
       db.run(
         `UPDATE payments
@@ -98,11 +113,18 @@ async function reconcileOnePayment(record, auth) {
          WHERE telegram_user_id = ?`,
         DAY_PASS_BONUS_QUOTA, tgUserId
       );
+      const row = db.get('SELECT id FROM payments WHERE charge_id = ?', chargeId);
+      paymentRowId = row?.id ?? null;
     })();
+    if (paymentRowId) {
+      try { registerCommissionFromPayment(paymentRowId, tgUserId, plan, amountMinor); }
+      catch (e) { console.warn('[reconcile] commission failed:', e?.message); }
+    }
     console.log(`[reconcile] day_pass +${DAY_PASS_BONUS_QUOTA} quota: tg_user=${tgUserId} charge=${chargeId}`);
     return;
   }
 
+  const days = durationDaysByPeriod(plan, period);
   db.transaction(() => {
     db.run(
       `UPDATE payments
@@ -115,7 +137,6 @@ async function reconcileOnePayment(record, auth) {
       amountMinor, currency, rawJson, chargeId
     );
 
-    const days = PLAN_DURATION_DAYS[plan];
     const current = db.get(
       `SELECT expires_at FROM subscriptions
        WHERE telegram_user_id = ? AND datetime(expires_at) > datetime('now')
@@ -128,9 +149,9 @@ async function reconcileOnePayment(record, auth) {
     const newExpires = new Date(base.getTime() + days * 86_400_000).toISOString();
 
     db.run(
-      `INSERT INTO subscriptions (telegram_user_id, plan, source, started_at, expires_at, is_trial, auto_renew)
-       VALUES (?, ?, 'yookassa', datetime('now'), ?, 0, 0)`,
-      tgUserId, plan, newExpires
+      `INSERT INTO subscriptions (telegram_user_id, plan, source, started_at, expires_at, is_trial, auto_renew, billing_period)
+       VALUES (?, ?, 'yookassa', datetime('now'), ?, 0, 0, ?)`,
+      tgUserId, plan, newExpires, period
     );
 
     db.run(
@@ -139,12 +160,39 @@ async function reconcileOnePayment(record, auth) {
       newExpires,
       tgUserId
     );
+
+    const row = db.get('SELECT id FROM payments WHERE charge_id = ?', chargeId);
+    paymentRowId = row?.id ?? null;
   })();
 
-  console.log(`[reconcile] activated via cron: tg_user=${tgUserId} plan=${plan} charge=${chargeId}`);
+  if (paymentRowId) {
+    try { registerCommissionFromPayment(paymentRowId, tgUserId, plan, amountMinor); }
+    catch (e) { console.warn('[reconcile] commission failed:', e?.message); }
+  }
+
+  console.log(`[reconcile] activated via cron: tg_user=${tgUserId} plan=${plan} period=${period} days=${days} charge=${chargeId}`);
+}
+
+// Раз в сутки запускаем daily-stats refresh. Используем простой in-memory
+// маркер «yyyy-mm-dd последнего запуска» — при рестарте сервиса оно сбросится
+// и stats пересчитаются ещё раз (idempotent через INSERT OR REPLACE).
+let _lastDailyStatsKey = null;
+
+function maybeRunDailyStats() {
+  const now = new Date();
+  const key = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`;
+  if (_lastDailyStatsKey === key) return;
+  // Запускаем только после 00:30 UTC чтобы захватить все вчерашние платежи
+  if (now.getUTCHours() === 0 && now.getUTCMinutes() < 30) return;
+  _lastDailyStatsKey = key;
+  refreshDailyStats();
 }
 
 async function reconcileTick() {
+  // Партнёрские хуки крутятся всегда (даже без YK ключей)
+  try { releasePendingCommissions(); } catch (e) { console.warn('[reconcile] release commissions failed:', e?.message); }
+  try { maybeRunDailyStats(); } catch (e) { console.warn('[reconcile] daily stats failed:', e?.message); }
+
   const YK_SHOP_ID = process.env.YK_SHOP_ID;
   const YK_SECRET_KEY = process.env.YK_SECRET_KEY;
   if (!YK_SHOP_ID || !YK_SECRET_KEY) return; // no-op без ключей

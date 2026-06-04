@@ -93,14 +93,32 @@ router.get('/prices', (req, res) => {
 // Юзер открывает этот URL, оплачивает картой → ЮКасса шлёт webhook на
 // /api/v1/yookassa/webhook, который активирует подписку идемпотентно.
 //
-// Цены в рублях — фиксированно из env (YK_PRICE_BASIC и т.д.).
+// Цены в рублях — фиксированно из env (YK_PRICE_*).
+// body: { plan: 'basic'|'premium'|'day_pass', period?: 'monthly'|'quarterly'|'yearly' }
+// period для day_pass игнорируется (это разовая покупка, не подписка).
 //
 // Если YK_SHOP_ID/YK_SECRET_KEY не заданы — возвращаем 503 «не настроено».
 const YK_PRICES_RUB = {
-  basic:    parseInt(process.env.YK_PRICE_BASIC, 10)    || 280,
-  premium:  parseInt(process.env.YK_PRICE_PREMIUM, 10)  || 700,
-  day_pass: parseInt(process.env.YK_PRICE_DAY_PASS, 10) || 70,
+  basic_monthly:    parseInt(process.env.YK_PRICE_BASIC, 10)        || 299,
+  basic_quarterly:  parseInt(process.env.YK_PRICE_BASIC_3M, 10)     || 799,
+  basic_yearly:     parseInt(process.env.YK_PRICE_BASIC_12M, 10)    || 2990,
+  premium_monthly:  parseInt(process.env.YK_PRICE_PREMIUM, 10)      || 899,
+  premium_quarterly:parseInt(process.env.YK_PRICE_PREMIUM_3M, 10)   || 2399,
+  premium_yearly:   parseInt(process.env.YK_PRICE_PREMIUM_12M, 10)  || 8990,
+  day_pass:         parseInt(process.env.YK_PRICE_DAY_PASS, 10)     || 99,
 };
+
+const VALID_PLANS   = new Set(['basic', 'premium', 'day_pass']);
+const VALID_PERIODS = new Set(['monthly', 'quarterly', 'yearly']);
+
+function resolveYkPrice(plan, period) {
+  if (plan === 'day_pass') return YK_PRICES_RUB.day_pass;
+  if (plan === 'basic' || plan === 'premium') {
+    const key = `${plan}_${period || 'monthly'}`;
+    return YK_PRICES_RUB[key];
+  }
+  return null;
+}
 
 router.post('/yookassa/invoice', async (req, res) => {
   const YK_SHOP_ID = process.env.YK_SHOP_ID;
@@ -111,11 +129,23 @@ router.post('/yookassa/invoice', async (req, res) => {
   }
 
   const { plan } = req.body || {};
-  if (!plan || !YK_PRICES_RUB[plan]) {
-    return res.status(400).json({ ok: false, error: `plan должен быть один из: ${Object.keys(YK_PRICES_RUB).join(', ')}` });
+  let { period } = req.body || {};
+  if (!plan || !VALID_PLANS.has(plan)) {
+    return res.status(400).json({ ok: false, error: `plan должен быть один из: ${[...VALID_PLANS].join(', ')}` });
+  }
+  if (plan === 'day_pass') {
+    period = 'monthly'; // фиктивное значение, не используется в активации
+  } else {
+    if (!period) period = 'monthly';
+    if (!VALID_PERIODS.has(period)) {
+      return res.status(400).json({ ok: false, error: `period должен быть один из: ${[...VALID_PERIODS].join(', ')}` });
+    }
   }
 
-  const amountRub = YK_PRICES_RUB[plan];
+  const amountRub = resolveYkPrice(plan, period);
+  if (!amountRub) {
+    return res.status(400).json({ ok: false, error: 'Цена для plan/period не настроена на сервере' });
+  }
   const idempotenceKey = crypto.randomBytes(16).toString('hex');
   const botUsername = process.env.BOT_USERNAME || 'CupidonAppBot';
   const botAppName  = process.env.BOT_APP_NAME  || 'app';
@@ -137,9 +167,10 @@ router.post('/yookassa/invoice', async (req, res) => {
           type: 'redirect',
           return_url: returnUrl,
         },
-        description: `Купидон — ${plan}`,
+        description: `Купидон — ${plan}${plan === 'day_pass' ? '' : ` (${period})`}`,
         metadata: {
           plan,
+          period,
           tg_user_id: String(req.tgUser.id),
         },
       }),
@@ -170,6 +201,8 @@ router.post('/yookassa/invoice', async (req, res) => {
     confirmation_url: data.confirmation.confirmation_url,
     payment_id: data.id,
     amount_rub: amountRub,
+    plan,
+    period,
   });
 });
 

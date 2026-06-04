@@ -46,6 +46,87 @@ const MIGRATIONS = [
     version: '002_users_tutorial_done',
     sql: null, // null = специальная обработка
   },
+  // 003 — billing_period для годовых/квартальных подписок (Basic/Premium).
+  // Значения: 'monthly' | 'quarterly' | 'yearly'. Дефолт 'monthly' — для
+  // существующих subscriptions подходит (мы и так считаем по expires_at;
+  // эта колонка только для UI/аналитики).
+  {
+    version: '003_subs_billing_period',
+    sql: null, // спец-обработка через PRAGMA table_info (см. applyBillingPeriodMigration)
+  },
+  // 004 — таблицы партнёрской программы (partners / referrals / commissions /
+  // payouts / daily_stats). Идемпотентно через CREATE TABLE IF NOT EXISTS.
+  {
+    version: '004_partners',
+    sql: `
+      CREATE TABLE IF NOT EXISTS partners (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        telegram_user_id INTEGER NOT NULL UNIQUE,
+        code TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL,
+        commission_pct INTEGER NOT NULL DEFAULT 50,
+        status TEXT NOT NULL DEFAULT 'active',
+        payout_details TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_by_admin_id INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_partners_code ON partners(code);
+      CREATE INDEX IF NOT EXISTS idx_partners_user ON partners(telegram_user_id);
+
+      CREATE TABLE IF NOT EXISTS partner_referrals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        partner_id INTEGER NOT NULL REFERENCES partners(id),
+        telegram_user_id INTEGER NOT NULL UNIQUE,
+        attributed_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_referrals_partner ON partner_referrals(partner_id);
+
+      CREATE TABLE IF NOT EXISTS partner_payouts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        partner_id INTEGER NOT NULL REFERENCES partners(id),
+        amount INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'requested',
+        requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+        processed_at TEXT,
+        note TEXT,
+        admin_id INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_payouts_partner ON partner_payouts(partner_id, status);
+
+      CREATE TABLE IF NOT EXISTS partner_commissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        partner_id INTEGER NOT NULL REFERENCES partners(id),
+        payment_id INTEGER NOT NULL REFERENCES payments(id),
+        telegram_user_id INTEGER NOT NULL,
+        gross_amount INTEGER NOT NULL,
+        ai_cost INTEGER NOT NULL,
+        yk_fee INTEGER NOT NULL,
+        tax INTEGER NOT NULL,
+        net_amount INTEGER NOT NULL,
+        commission_pct INTEGER NOT NULL,
+        commission_amount INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        available_at TEXT NOT NULL,
+        paid_at TEXT,
+        payout_id INTEGER REFERENCES partner_payouts(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_commissions_partner ON partner_commissions(partner_id, status);
+      CREATE INDEX IF NOT EXISTS idx_commissions_available_at ON partner_commissions(available_at);
+      CREATE INDEX IF NOT EXISTS idx_commissions_payment ON partner_commissions(payment_id);
+
+      CREATE TABLE IF NOT EXISTS partner_daily_stats (
+        partner_id INTEGER NOT NULL REFERENCES partners(id),
+        date TEXT NOT NULL,
+        new_referrals INTEGER NOT NULL DEFAULT 0,
+        paid_users INTEGER NOT NULL DEFAULT 0,
+        gross_revenue INTEGER NOT NULL DEFAULT 0,
+        commission_earned INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (partner_id, date)
+      );
+    `,
+  },
 ];
 
 /**
@@ -63,6 +144,17 @@ function applyTutorialDoneMigration() {
   db.exec(`UPDATE users SET tutorial_done = 1 WHERE tutorial_done = 0`);
 }
 
+/**
+ * 003 — billing_period в subscriptions. Идемпотентно через PRAGMA table_info.
+ */
+function applyBillingPeriodMigration() {
+  const cols = db.prepare('PRAGMA table_info(subscriptions)').all();
+  const hasCol = cols.some(c => c.name === 'billing_period');
+  if (!hasCol) {
+    db.exec(`ALTER TABLE subscriptions ADD COLUMN billing_period TEXT NOT NULL DEFAULT 'monthly'`);
+  }
+}
+
 function isApplied(version) {
   return !!db.prepare('SELECT 1 FROM schema_migrations WHERE version = ?').get(version);
 }
@@ -75,6 +167,8 @@ for (const m of MIGRATIONS) {
   try {
     if (m.version === '002_users_tutorial_done') {
       applyTutorialDoneMigration();
+    } else if (m.version === '003_subs_billing_period') {
+      applyBillingPeriodMigration();
     } else if (m.sql) {
       db.exec(m.sql);
     }

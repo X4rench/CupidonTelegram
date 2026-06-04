@@ -21,6 +21,7 @@ import { Router } from 'express';
 import { timingSafeEqual } from 'crypto';
 import db from '../db/index.js';
 import { sendMessage, answerPreCheckoutQuery } from '../services/bot-api.js';
+import { registerCommissionFromPayment } from '../utils/partnerHooks.js';
 
 const router = Router();
 

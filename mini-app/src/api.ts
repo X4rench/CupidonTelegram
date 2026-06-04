@@ -132,6 +132,7 @@ export interface MeUser {
   tg_bonus_claimed?: boolean;
   tg_bonus_quota?: number;
   is_admin?: boolean;
+  is_partner?: boolean;
   created_at?: string;
 }
 
@@ -566,15 +567,22 @@ export interface YookassaInvoiceResponse {
   error?: string;
 }
 
+export type BillingPeriod = 'monthly' | 'quarterly' | 'yearly';
+
 /**
  * Создать ЮКасса-платёж и получить confirmation_url для открытия в TG WebView.
  * После успешной оплаты webhook ЮКассы активирует подписку асинхронно —
  * фронт делает polling /users/subscription пока tier не сменится с free.
+ *
+ * period — только для basic/premium. day_pass игнорирует period (разовая покупка).
  */
-export async function createYookassaInvoice(plan: StarsPlan): Promise<YookassaInvoiceResponse> {
+export async function createYookassaInvoice(
+  plan: StarsPlan,
+  period?: BillingPeriod,
+): Promise<YookassaInvoiceResponse> {
   return fetchAuthed<YookassaInvoiceResponse>('/payments/yookassa/invoice', {
     method: 'POST',
-    body: JSON.stringify({ plan }),
+    body: JSON.stringify({ plan, period: period || 'monthly' }),
   });
 }
 
@@ -707,4 +715,183 @@ export const adminApi = {
       `/admin/users/${tgId}/revoke-subscription`,
       { method: 'POST', body: JSON.stringify({}) },
     ),
+};
+
+// ── Partner program ─────────────────────────────────────────────────────────
+
+export interface PartnerInfo {
+  code: string;
+  display_name: string;
+  commission_pct: number;
+  status: 'active' | 'paused' | 'archived';
+}
+
+export interface PartnerBalance {
+  pending: number;          // копейки
+  available: number;        // копейки
+  lifetime_earned: number;  // копейки
+}
+
+export interface PartnerStats30d {
+  new_referrals: number;
+  paid_users: number;
+  conversion_pct: number;
+  by_tier: { basic: number; premium: number; day_pass: number };
+  by_tier_revenue: { basic: number; premium: number; day_pass: number };
+}
+
+export interface PartnerChartPoint {
+  date: string;
+  earned: number;
+  referrals: number;
+}
+
+export interface PartnerRankInfo {
+  position: number;
+  of_total: number;
+  next_position_diff: number;
+}
+
+export interface PartnerTopEntry {
+  rank: number;
+  partner_id: number;
+  code: string;
+  display_name: string;
+  total: number;
+}
+
+export interface PartnerStatsResp {
+  ok: boolean;
+  partner: PartnerInfo;
+  balance: PartnerBalance;
+  stats_30d: PartnerStats30d;
+  chart_data: PartnerChartPoint[];
+  rank: PartnerRankInfo;
+  top5: PartnerTopEntry[];
+  min_payout_kopecks: number;
+}
+
+export interface PartnerPayout {
+  id: number;
+  amount: number;
+  status: 'requested' | 'processing' | 'paid' | 'failed';
+  requested_at: string;
+  processed_at?: string | null;
+  note?: string | null;
+}
+
+export async function getPartnerStats(): Promise<PartnerStatsResp> {
+  return fetchAuthed<PartnerStatsResp>('/partner/me/stats');
+}
+
+export async function getPartnerPayouts(): Promise<{ ok: boolean; payouts: PartnerPayout[] }> {
+  return fetchAuthed('/partner/me/payouts');
+}
+
+export async function requestPartnerPayout(): Promise<{ ok: boolean; payout_id?: number; amount?: number; error?: string }> {
+  return fetchAuthed('/partner/me/request-payout', { method: 'POST', body: JSON.stringify({}) });
+}
+
+// ── Admin: Partners ─────────────────────────────────────────────────────────
+
+export interface AdminPartnerRow {
+  id: number;
+  telegram_user_id: number;
+  code: string;
+  display_name: string;
+  commission_pct: number;
+  status: 'active' | 'paused' | 'archived';
+  notes?: string | null;
+  created_at: string;
+  referrals: number;
+  lifetime_earned: number;
+  available_kopecks: number;
+}
+
+export interface AdminPartnersDashboardResp {
+  ok: boolean;
+  totals: {
+    active_partners: number;
+    total_referrals: number;
+    pending_kopecks: number;
+    available_kopecks: number;
+    paid_kopecks: number;
+    pending_payouts: number;
+    gross_revenue: number;
+    commission_paid_out: number;
+  };
+  top5: PartnerTopEntry[];
+}
+
+export interface AdminPartnerDetail {
+  ok: boolean;
+  partner: {
+    id: number;
+    telegram_user_id: number;
+    code: string;
+    display_name: string;
+    commission_pct: number;
+    status: string;
+    notes?: string | null;
+    created_at: string;
+    payout_details?: Record<string, any> | null;
+  };
+  balance: PartnerBalance;
+  stats_30d: PartnerStats30d;
+  chart_data: PartnerChartPoint[];
+  recent_referrals: Array<{
+    telegram_user_id_masked: string | null;
+    attributed_at: string;
+    last_plan?: string | null;
+    last_paid_at?: string | null;
+  }>;
+  payouts: PartnerPayout[];
+  min_payout_kopecks: number;
+}
+
+export const partnerAdminApi = {
+  getDashboard: () => fetchAuthed<AdminPartnersDashboardResp>('/admin/partners/dashboard'),
+
+  list: (filter?: { status?: string; q?: string }) => {
+    const params = new URLSearchParams();
+    if (filter?.status) params.set('status', filter.status);
+    if (filter?.q) params.set('q', filter.q);
+    const qs = params.toString();
+    return fetchAuthed<{ ok: boolean; partners: AdminPartnerRow[] }>(`/admin/partners${qs ? '?' + qs : ''}`);
+  },
+
+  create: (payload: {
+    telegram_user_id: number;
+    code: string;
+    display_name: string;
+    commission_pct: number;
+    payout_details?: Record<string, any>;
+    notes?: string;
+  }) =>
+    fetchAuthed<{ ok: boolean; partner: any; error?: string }>('/admin/partners', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  get: (id: number | string) => fetchAuthed<AdminPartnerDetail>(`/admin/partners/${id}`),
+
+  update: (id: number | string, payload: {
+    display_name?: string;
+    status?: 'active' | 'paused' | 'archived';
+    notes?: string;
+    payout_details?: Record<string, any>;
+  }) =>
+    fetchAuthed<{ ok: boolean; error?: string }>(`/admin/partners/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  archive: (id: number | string) =>
+    fetchAuthed<{ ok: boolean }>(`/admin/partners/${id}`, { method: 'DELETE' }),
+
+  pay: (id: number | string, amount?: number, note?: string) =>
+    fetchAuthed<{ ok: boolean; amount: number; error?: string }>(`/admin/partners/${id}/pay`, {
+      method: 'POST',
+      body: JSON.stringify({ amount, note }),
+    }),
 };

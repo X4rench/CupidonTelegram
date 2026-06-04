@@ -18,18 +18,26 @@
 import { Router } from 'express';
 import { timingSafeEqual } from 'crypto';
 import db from '../db/index.js';
+import { registerCommissionFromPayment, cancelCommissionOnRefund } from '../utils/partnerHooks.js';
 
 const router = Router();
 
 const YK_WEBHOOK_SECRET = process.env.YK_WEBHOOK_SECRET;
 
+// Длительности по period. month=30, quarter=90, year=365.
+// day_pass=0 — особая ветка без subscription.
 const PLAN_DURATION_DAYS = {
   basic:    30,
   premium:  30,
-  // day_pass — НЕ создаёт subscription, см. handlePaymentSucceeded.
-  // Оставлен в map чтобы plan-валидация не отвергала day_pass-webhook'и.
   day_pass: 0,
 };
+
+function durationDaysByPeriod(plan, period) {
+  if (plan === 'day_pass') return 0;
+  if (period === 'yearly')    return 365;
+  if (period === 'quarterly') return 90;
+  return 30; // monthly (default)
+}
 
 // Day Pass — пополнение запасной квоты на +N запросов (новая концепция).
 // См. routes/yookassa.js, routes/telegram.js, utils/reconcile.js — все три места
@@ -112,6 +120,7 @@ async function handlePaymentSucceeded(payment) {
   }
   const metadata = payment.metadata || {};
   const plan = metadata.plan;
+  const period = metadata.period || 'monthly';
   const tgUserId = parseInt(metadata.tg_user_id, 10);
 
   if (!plan || !(plan in PLAN_DURATION_DAYS)) {
@@ -134,8 +143,10 @@ async function handlePaymentSucceeded(payment) {
   const currency = payment.amount?.currency || 'RUB';
   const rawJson = JSON.stringify(payment).slice(0, 8000);
 
+  let paymentRowId = null;
+
   if (plan === 'day_pass') {
-    // ── НОВАЯ концепция day_pass — +N запросов к tg_bonus_quota ────────────
+    // ── day_pass — +N запросов к tg_bonus_quota ─────────────────────────────
     // Никакой subscription/tier-change. Просто пополнение bonus quota,
     // которая тратится по 1 за запрос через tryConsumeBonus в utils/limits.js.
     db.transaction(() => {
@@ -170,13 +181,25 @@ async function handlePaymentSucceeded(payment) {
          WHERE telegram_user_id = ?`,
         DAY_PASS_BONUS_QUOTA, tgUserId
       );
+
+      const row = db.get('SELECT id FROM payments WHERE charge_id = ?', chargeId);
+      paymentRowId = row?.id ?? null;
     })();
+
+    // Регистрация commission партнёру (вне основной транзакции, т.к. использует
+    // отдельный INSERT и идемпотентна по payment_id)
+    if (paymentRowId) {
+      try { registerCommissionFromPayment(paymentRowId, tgUserId, plan, amountMinor); }
+      catch (e) { console.warn('[yookassa] commission failed:', e?.message); }
+    }
 
     console.log(`[yookassa] day_pass +${DAY_PASS_BONUS_QUOTA} quota: tg_user=${tgUserId} amount=${amountMinor/100} ${currency} charge=${chargeId}`);
     return;
   }
 
-  // ── СТАРАЯ логика basic/premium — создаём/продлеваем subscription ────────
+  // ── basic/premium — создаём/продлеваем subscription ─────────────────────
+  const days = durationDaysByPeriod(plan, period);
+
   db.transaction(() => {
     // 1. Upsert payment record (могли создать pending при /yookassa/invoice;
     //    либо webhook пришёл раньше нашего ответа — тогда создаём с нуля)
@@ -201,7 +224,6 @@ async function handlePaymentSucceeded(payment) {
     }
 
     // 2. Активируем подписку (продление от max(now, current expires))
-    const days = PLAN_DURATION_DAYS[plan];
     const current = db.get(
       `SELECT expires_at FROM subscriptions
        WHERE telegram_user_id = ? AND datetime(expires_at) > datetime('now')
@@ -214,9 +236,9 @@ async function handlePaymentSucceeded(payment) {
     const newExpires = new Date(base.getTime() + days * 86_400_000).toISOString();
 
     db.run(
-      `INSERT INTO subscriptions (telegram_user_id, plan, source, started_at, expires_at, is_trial, auto_renew)
-       VALUES (?, ?, 'yookassa', datetime('now'), ?, 0, 0)`,
-      tgUserId, plan, newExpires
+      `INSERT INTO subscriptions (telegram_user_id, plan, source, started_at, expires_at, is_trial, auto_renew, billing_period)
+       VALUES (?, ?, 'yookassa', datetime('now'), ?, 0, 0, ?)`,
+      tgUserId, plan, newExpires, period
     );
 
     // 3. Обновим кеш sub_tier на user-row
@@ -226,9 +248,17 @@ async function handlePaymentSucceeded(payment) {
       newExpires,
       tgUserId
     );
+
+    const row = db.get('SELECT id FROM payments WHERE charge_id = ?', chargeId);
+    paymentRowId = row?.id ?? null;
   })();
 
-  console.log(`[yookassa] payment OK: tg_user=${tgUserId} plan=${plan} amount=${amountMinor/100} ${currency} charge=${chargeId}`);
+  if (paymentRowId) {
+    try { registerCommissionFromPayment(paymentRowId, tgUserId, plan, amountMinor); }
+    catch (e) { console.warn('[yookassa] commission failed:', e?.message); }
+  }
+
+  console.log(`[yookassa] payment OK: tg_user=${tgUserId} plan=${plan} period=${period} days=${days} amount=${amountMinor/100} ${currency} charge=${chargeId}`);
 }
 
 async function handlePaymentCanceled(payment) {
@@ -249,6 +279,10 @@ async function handleRefund(refund) {
     `UPDATE payments SET status = 'refunded' WHERE charge_id = ?`,
     originalChargeId
   );
+  // Партнёрка: удаляем pending-commissions (если 14 дней не истекли).
+  // Available/paid — не трогаем (юзер уже мог получить деньги).
+  try { cancelCommissionOnRefund(originalChargeId); }
+  catch (e) { console.warn('[yookassa] cancel commission failed:', e?.message); }
   console.log(`[yookassa] payment refunded: charge=${originalChargeId}`);
 }
 

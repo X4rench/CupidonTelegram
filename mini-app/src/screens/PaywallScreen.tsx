@@ -31,14 +31,58 @@ import { useMe } from '../contexts/MeContext';
 import { usePaywall, type PaywallReason } from '../contexts/PaywallContext';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
-import { createYookassaInvoice, getMe, type StarsPlan } from '../api';
+import { createYookassaInvoice, getMe, type StarsPlan, type BillingPeriod } from '../api';
 
 // Цены в рублях для UI. Точные суммы — на бэкенде в YK_PRICE_*.
+// Месячные + квартальные + годовые цены отдельно (новая фича).
 const RUB_PRICES: Record<StarsPlan, number> = {
-  basic:    parseInt(import.meta.env.VITE_RUB_PRICE_BASIC || '280', 10) || 280,
-  premium:  parseInt(import.meta.env.VITE_RUB_PRICE_PREMIUM || '700', 10) || 700,
-  day_pass: parseInt(import.meta.env.VITE_RUB_PRICE_DAY_PASS || '70', 10) || 70,
+  basic:    parseInt(import.meta.env.VITE_RUB_PRICE_BASIC || '299', 10) || 299,
+  premium:  parseInt(import.meta.env.VITE_RUB_PRICE_PREMIUM || '899', 10) || 899,
+  day_pass: parseInt(import.meta.env.VITE_RUB_PRICE_DAY_PASS || '99', 10) || 99,
 };
+
+const RUB_PRICES_3M: Record<'basic' | 'premium', number> = {
+  basic:   parseInt(import.meta.env.VITE_RUB_PRICE_BASIC_3M || '799', 10) || 799,
+  premium: parseInt(import.meta.env.VITE_RUB_PRICE_PREMIUM_3M || '2399', 10) || 2399,
+};
+
+const RUB_PRICES_12M: Record<'basic' | 'premium', number> = {
+  basic:   parseInt(import.meta.env.VITE_RUB_PRICE_BASIC_12M || '2990', 10) || 2990,
+  premium: parseInt(import.meta.env.VITE_RUB_PRICE_PREMIUM_12M || '8990', 10) || 8990,
+};
+
+const PERIOD_LABELS: Record<BillingPeriod, string> = {
+  monthly:   'Месяц',
+  quarterly: '3 мес',
+  yearly:    'Год',
+};
+
+const PERIOD_SUBTITLES: Record<BillingPeriod, string> = {
+  monthly:   '/ мес',
+  quarterly: '/ 3 мес',
+  yearly:    '/ год',
+};
+
+function priceForPlanPeriod(plan: 'basic' | 'premium', period: BillingPeriod): number {
+  if (period === 'monthly')   return RUB_PRICES[plan];
+  if (period === 'quarterly') return RUB_PRICES_3M[plan];
+  return RUB_PRICES_12M[plan];
+}
+
+function periodDiscountPct(plan: 'basic' | 'premium', period: BillingPeriod): number {
+  if (period === 'monthly') return 0;
+  const months = period === 'quarterly' ? 3 : 12;
+  const baseline = RUB_PRICES[plan] * months;
+  const actual = priceForPlanPeriod(plan, period);
+  if (baseline <= 0) return 0;
+  return Math.round((1 - actual / baseline) * 100);
+}
+
+function perMonthFor(plan: 'basic' | 'premium', period: BillingPeriod): number {
+  if (period === 'monthly') return RUB_PRICES[plan];
+  const months = period === 'quarterly' ? 3 : 12;
+  return Math.round(priceForPlanPeriod(plan, period) / months);
+}
 
 // Количество запросов которые добавляет Day Pass. Должно совпадать с
 // DAY_PASS_BONUS_QUOTA на бэке (default 100).
@@ -103,6 +147,7 @@ export function PaywallScreen() {
   const [busyPlan, setBusyPlan] = useState<StarsPlan | null>(null);
   const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [paymentsUnavailable, setPaymentsUnavailable] = useState(false);
+  const [period, setPeriod] = useState<BillingPeriod>('monthly');
 
   const closeAndBack = useCallback(() => {
     paywall.close();
@@ -147,7 +192,8 @@ export function PaywallScreen() {
     setToast(null);
 
     try {
-      const res = await createYookassaInvoice(plan);
+      const effectivePeriod: BillingPeriod = plan === 'day_pass' ? 'monthly' : period;
+      const res = await createYookassaInvoice(plan, effectivePeriod);
       if (!res.ok || !res.confirmation_url) {
         // Бэк может вернуть 503 если YK_SHOP_ID/YK_SECRET_KEY не заданы.
         notificationHaptic('error');
@@ -240,20 +286,66 @@ export function PaywallScreen() {
         </div>
       )}
 
+      {/* Period switcher — monthly / quarterly / yearly */}
+      <div style={styles.periodSwitcherWrap}>
+        <div style={styles.periodSwitcher}>
+          {(['monthly', 'quarterly', 'yearly'] as BillingPeriod[]).map(p => {
+            const active = period === p;
+            // Считаем средний дисконт по basic/premium для показа в чипе
+            const discountBasic = periodDiscountPct('basic', p);
+            return (
+              <button
+                key={p}
+                onClick={() => { selectionHapticSafe(); setPeriod(p); }}
+                style={{
+                  ...styles.periodChip,
+                  background: active ? 'var(--accent-primary)' : 'transparent',
+                  color: active ? '#fff' : 'var(--text-secondary)',
+                }}
+              >
+                <span>{PERIOD_LABELS[p]}</span>
+                {discountBasic > 0 && (
+                  <span style={{
+                    ...styles.discountBadge,
+                    background: active ? 'rgba(255,255,255,0.22)' : 'rgba(34,197,94,0.18)',
+                    color: active ? '#fff' : 'var(--status-positive)',
+                  }}>−{discountBasic}%</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Subscription plans */}
       <div style={styles.plans}>
-        {SUBSCRIPTION_PLANS.map(plan => (
-          <PlanCard
-            key={plan.id}
-            cfg={plan}
-            price={RUB_PRICES[plan.id]}
-            isCurrent={tier === plan.id}
-            expiresAt={tier === plan.id ? expiresAt : null}
-            busy={busyPlan === plan.id}
-            disabled={busyPlan != null && busyPlan !== plan.id}
-            onBuy={() => handlePayCard(plan.id)}
-          />
-        ))}
+        {SUBSCRIPTION_PLANS.map(plan => {
+          const isSubPlan = plan.id === 'basic' || plan.id === 'premium';
+          const price = isSubPlan
+            ? priceForPlanPeriod(plan.id as 'basic' | 'premium', period)
+            : RUB_PRICES[plan.id];
+          const perMonth = isSubPlan
+            ? perMonthFor(plan.id as 'basic' | 'premium', period)
+            : 0;
+          const discount = isSubPlan
+            ? periodDiscountPct(plan.id as 'basic' | 'premium', period)
+            : 0;
+          return (
+            <PlanCard
+              key={plan.id}
+              cfg={plan}
+              price={price}
+              periodSubtitle={isSubPlan ? PERIOD_SUBTITLES[period] : plan.subtitle}
+              perMonth={isSubPlan && period !== 'monthly' ? perMonth : null}
+              discountPct={discount}
+              isCurrent={tier === plan.id}
+              expiresAt={tier === plan.id ? expiresAt : null}
+              busy={busyPlan === plan.id}
+              disabled={busyPlan != null && busyPlan !== plan.id}
+              onBuy={() => handlePayCard(plan.id)}
+            />
+          );
+        })}
       </div>
 
       {/* Day Pass — отдельная секция */}
