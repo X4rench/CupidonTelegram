@@ -1,26 +1,28 @@
 // ═══════════════════════════════════════════════════════════════
-// AutoGrowTextarea — textarea, который сам растёт по высоте контента
-// (паттерн §6.5 в TMA_PORTING_PLAYBOOK).
-// Использует ref-измерение scrollHeight: сначала сбрасываем height до
-// 'auto', затем выставляем = scrollHeight; max-height ограничивает рост.
+// AutoGrowTextarea — мульти-строчное поле ввода, авторастущее по контенту.
 //
-// iOS paste fix (multi-line вставка):
-// На Telegram iOS (WKWebView) дефолтная вставка multi-line текста в
-// textarea с rows=1 обрезалась до первой строки. Причины:
-//   1. WKWebView иногда не выставляет text/plain с \n — newlines уходят
-//      в text/html как <br>.
-//   2. React's onPaste может срабатывать ПОСЛЕ того как input event уже
-//      применил обрезанное value.
+// Под капотом — <div contenteditable="true">, НЕ <textarea>.
 //
-// Решение:
-//   - Native addEventListener('paste', ..., {capture: true}) — перехват
-//     ДО React'овских обработчиков и применения дефолта в WebView.
-//   - Парсим оба MIME: text/plain И text/html (с конвертацией <br>, <p>
-//     в \n).
-//   - Если оба возвращают однострочный текст (буфер реально однострочный),
-//     не препятствуем дефолтному поведению.
-//   - Fallback на navigator.clipboard.readText() async — если оба MIME
-//     дали пусто. (Не блокирует UI — onChange произойдёт в then.)
+// Почему так:
+// На iOS Telegram WebView у <textarea> две архитектурные проблемы:
+//   1. Long-press → Paste из чата TG обрезает multi-line до первой строки.
+//      Это политика Apple (см. github.com/Telegram-Mini-Apps/telegram-apps/
+//      issues/609 — "clipboard_text_received data always return null on iOS").
+//   2. readTextFromClipboard работает только для Mini App'ов запущенных
+//      через attachment menu (скрепка в чате), а Купидон запускается
+//      через direct link — поэтому метод возвращает null.
+// В <div contenteditable> paste работает НАТИВНО с multi-line на всех
+// платформах включая iOS. Apple/WebKit обрабатывают paste в editable HTML
+// по-другому — там нет ограничений на newlines.
+//
+// API совместим со старым textarea — value/onChange как было, plus новые:
+//   - pasteButton — оставлен для fallback (на iOS contenteditable должен
+//     работать, но кнопка пусть тоже есть для надёжности)
+//
+// Внутри:
+//   - При paste конвертируем clipboard HTML → plain text (newlines в \n)
+//   - innerText используется как «текущее значение» (не innerHTML)
+//   - Auto-grow через CSS min-height + естественный рост div'а
 // ═══════════════════════════════════════════════════════════════
 import {
   forwardRef,
@@ -30,6 +32,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type ClipboardEvent,
 } from 'react';
 import { readClipboard, isClipboardReadSupported, clipboardErrorMessage } from '../utils/clipboard';
 import { notificationHaptic, selectionHaptic } from '../utils/haptics';
@@ -37,17 +40,15 @@ import { notificationHaptic, selectionHaptic } from '../utils/haptics';
 interface Props {
   value: string;
   onChange: (v: string) => void;
-  onSubmit?: () => void;     // Enter без Shift → submit
+  onSubmit?: () => void;
   placeholder?: string;
   maxLength?: number;
   maxHeight?: number;
   disabled?: boolean;
   style?: CSSProperties;
   autoFocus?: boolean;
-  /** Показать кнопку «Вставить из буфера». Нужно для multi-line вставок
-      на iOS Telegram WebView, где обычный paste обрезает до первой строки. */
+  /** Кнопка «Вставить» через TG WebApp API. Fallback если ничего не помогает. */
   pasteButton?: boolean;
-  /** Подпись на кнопке вставки. Default «📋 Вставить из буфера». */
   pasteButtonLabel?: string;
 }
 
@@ -55,73 +56,141 @@ export interface AutoGrowTextareaHandle {
   focus: () => void;
 }
 
-/**
- * Извлекаем multi-line текст из clipboardData. На iOS Telegram WebView
- * text/plain иногда содержит только первую строку, а \n уходят в text/html
- * как <br>. Парсим html и нормализуем в plain.
- */
-function extractMultilineFromClipboard(cd: DataTransfer | null): string {
-  if (!cd) return '';
-  const plain = cd.getData('text/plain') || cd.getData('text') || '';
-  const html  = cd.getData('text/html') || '';
-
-  // Если в plain уже есть переносы — отлично, используем как есть.
-  if (plain && (plain.includes('\n') || plain.includes('\r'))) return plain;
-
-  // Иначе пробуем html.
-  if (html) {
-    const parsed = htmlToPlain(html);
-    // Берём html-версию только если она ДЛИННЕЕ plain (т.е. содержит больше
-    // информации). Иначе остаёмся с plain.
-    if (parsed.length > plain.length) return parsed;
-  }
-
-  return plain;
-}
-
-/** HTML → plain: <br>/<p>/<div> в \n, остальные теги выкидываем. */
+/** HTML → plain text с сохранением переносов строк. */
 function htmlToPlain(html: string): string {
-  // Заменяем явные блочные теги на переносы
-  let s = html
-    .replace(/<br\s*\/?\s*>/gi, '\n')
-    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
-    .replace(/<p[^>]*>|<div[^>]*>/gi, '');
-  // Убираем оставшиеся теги
-  s = s.replace(/<[^>]+>/g, '');
-  // Декодируем основные HTML entities (минимально нужные)
-  s = s
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
-  // Нормализуем последовательности переносов
-  s = s.replace(/\n{3,}/g, '\n\n').trim();
-  return s;
+  // Используем DOMParser — он на iOS отлично работает.
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  // Заменяем блочные элементы на \n перед извлечением textContent
+  doc.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+  doc.querySelectorAll('p, div, li, h1, h2, h3, h4, h5, h6').forEach(el => {
+    el.append('\n');
+  });
+  const text = doc.body.textContent || '';
+  // Нормализация: \r\n → \n, схлопывание тройных переносов
+  return text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n');
 }
 
 export const AutoGrowTextarea = forwardRef<AutoGrowTextareaHandle, Props>(function AutoGrowTextarea(
-  { value, onChange, onSubmit, placeholder, maxLength, maxHeight = 120, disabled, style, autoFocus,
-    pasteButton, pasteButtonLabel },
+  {
+    value, onChange, onSubmit, placeholder, maxLength,
+    maxHeight = 120, disabled, style, autoFocus,
+    pasteButton, pasteButtonLabel,
+  },
   ref,
 ) {
-  const innerRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorRef = useRef<HTMLDivElement | null>(null);
   const [pasteBusy, setPasteBusy] = useState(false);
   const [pasteError, setPasteError] = useState<string | null>(null);
-  // Стабильная ссылка на последний onChange — для native listener.
+  // Сохраняем последнее value которое мы установили в DOM, чтобы избежать
+  // ненужных перерисовок (которые сбрасывают курсор).
+  const lastSetValueRef = useRef<string>('');
   const onChangeRef = useRef(onChange);
   const maxLenRef   = useRef(maxLength);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   useEffect(() => { maxLenRef.current = maxLength; }, [maxLength]);
 
-  // Авто-сброс ошибки через 3 секунды
+  useImperativeHandle(ref, () => ({
+    focus: () => editorRef.current?.focus(),
+  }));
+
+  // Синхронизация value → DOM. Только если значение отличается (иначе
+  // курсор будет прыгать при каждом ререндере).
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    if (lastSetValueRef.current !== value) {
+      // innerText сохраняет переносы строк как \n. Безопасно — никакой HTML.
+      el.innerText = value;
+      lastSetValueRef.current = value;
+    }
+  }, [value]);
+
+  // Auto-resize: расширяем сразу после изменения value.
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+  }, [value, maxHeight]);
+
+  // Авто-сброс ошибки кнопки через 3с
   useEffect(() => {
     if (!pasteError) return;
     const t = setTimeout(() => setPasteError(null), 3000);
     return () => clearTimeout(t);
   }, [pasteError]);
 
+  // Чтение текущего текста — единая точка истины.
+  const readCurrent = (): string => {
+    const el = editorRef.current;
+    if (!el) return '';
+    // innerText даёт plain text с \n из <br>. Идеально для нашего случая.
+    return el.innerText.replace(/\r\n/g, '\n');
+  };
+
+  const fireChange = (next: string) => {
+    let v = next;
+    const ml = maxLenRef.current;
+    if (typeof ml === 'number' && v.length > ml) v = v.slice(0, ml);
+    lastSetValueRef.current = v;
+    onChangeRef.current(v);
+  };
+
+  const onInput = () => {
+    fireChange(readCurrent());
+  };
+
+  // Paste — нативно даём WebView вставить, а потом нормализуем результат.
+  // На iOS contenteditable paste из TG чата приходит ПОЛНЫМ multi-line.
+  const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
+    const cd = e.clipboardData;
+    if (!cd) return; // дефолт сделает своё
+    const html  = cd.getData('text/html');
+    const plain = cd.getData('text/plain') || cd.getData('text') || '';
+
+    // Если есть html с переносами — используем его (лучше всего сохраняет
+    // структуру). Иначе plain — он на contenteditable обычно полный.
+    let text: string;
+    if (html && (html.includes('<br') || html.includes('<p') || html.includes('<div'))) {
+      text = htmlToPlain(html);
+    } else if (plain) {
+      text = plain;
+    } else {
+      // Нет ни plain, ни html — даём дефолт
+      return;
+    }
+
+    e.preventDefault();
+    // Вставляем как plain через execCommand insertText — это записывает
+    // в contenteditable БЕЗ форматирования (просто текст с \n как <br>).
+    // execCommand deprecated, но на iOS WebView — единственный надёжный
+    // способ вставить текст в текущее selection с сохранением курсора.
+    try {
+      document.execCommand('insertText', false, text);
+    } catch (_) {
+      // Fallback: ручная вставка через Selection API
+      try {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          range.insertNode(document.createTextNode(text));
+          range.collapse(false);
+        }
+      } catch (_) { /* совсем плохо — оставляем как есть */ }
+    }
+    // Триггерим onChange после вставки
+    requestAnimationFrame(() => onInput());
+  };
+
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (onSubmit && e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      onSubmit();
+    }
+  };
+
+  // Кнопка «Вставить» — fallback через TG WebApp API
   const showPasteButton = !!pasteButton && isClipboardReadSupported();
 
   const handlePasteButton = async () => {
@@ -131,37 +200,21 @@ export const AutoGrowTextarea = forwardRef<AutoGrowTextareaHandle, Props>(functi
     setPasteError(null);
     try {
       const result = await readClipboard();
-      // Логируем debug-инфу в console — если у юзера всё ещё не работает,
-      // можно открыть console через Telegram → Settings → Developer и увидеть
-      // версию TG, платформу, какой путь сработал и где упало.
       console.log('[clipboard]', result);
       if (!result.text) {
-        // Полезное сообщение пользователю по причине отказа
         setPasteError(clipboardErrorMessage(result.reason));
         notificationHaptic('error');
         return;
       }
-      const text = result.text;
-      const el = innerRef.current;
-      const start = el?.selectionStart ?? value.length;
-      const end   = el?.selectionEnd   ?? start;
-      const before = value.slice(0, start);
-      const after  = value.slice(end);
-      let next = before + text + after;
-      if (typeof maxLength === 'number' && next.length > maxLength) {
-        next = next.slice(0, maxLength);
+      const next = (value || '') + (value ? '\n' : '') + result.text;
+      fireChange(next);
+      // Обновим DOM сразу (без ожидания эффекта)
+      const el = editorRef.current;
+      if (el) {
+        el.innerText = next;
+        lastSetValueRef.current = next;
       }
-      onChange(next);
       notificationHaptic('success');
-      // После вставки — фокус и курсор в конец вставленного
-      requestAnimationFrame(() => {
-        if (!el) return;
-        try { el.focus(); } catch (_) {}
-        try {
-          const pos = Math.min(start + text.length, next.length);
-          el.selectionStart = el.selectionEnd = pos;
-        } catch (_) {}
-      });
     } catch (e: any) {
       console.error('[clipboard] exception', e);
       setPasteError(e?.message || 'Не удалось прочитать буфер');
@@ -171,105 +224,70 @@ export const AutoGrowTextarea = forwardRef<AutoGrowTextareaHandle, Props>(functi
     }
   };
 
-  useImperativeHandle(ref, () => ({
-    focus: () => innerRef.current?.focus(),
-  }));
-
+  // Auto-focus
   useEffect(() => {
-    const el = innerRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-  }, [value, maxHeight]);
-
-  // Native paste handler в capture-фазе — срабатывает РАНЬШЕ React'а и
-  // дефолтного поведения WebView. Это спасает iOS Telegram WKWebView,
-  // где React'овский onPaste может прийти после уже-применённого input.
-  useEffect(() => {
-    const el = innerRef.current;
-    if (!el) return;
-
-    const handler = (e: ClipboardEvent) => {
-      const text = extractMultilineFromClipboard(e.clipboardData);
-      if (!text) {
-        // Совсем пустой clipboard — fallback на async API.
-        // (Не блокируем event — пусть default попробует.)
-        return;
-      }
-      const hasNewlines = text.includes('\n') || text.includes('\r');
-      const hasSelection = el.selectionStart !== el.selectionEnd;
-      // Если в буфере нет переносов и нет выделения — даём дефолту работать
-      // (нативная вставка короче — нормальное поведение, autocorrect ок).
-      if (!hasNewlines && !hasSelection) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      const start = el.selectionStart ?? el.value.length;
-      const end   = el.selectionEnd   ?? start;
-      const before = el.value.slice(0, start);
-      const after  = el.value.slice(end);
-      let next = before + text + after;
-      const ml = maxLenRef.current;
-      if (typeof ml === 'number' && next.length > ml) next = next.slice(0, ml);
-
-      // Двухступенчатая запись: сначала в DOM (textarea), потом — onChange.
-      // Без записи в DOM React может перерендерить старое value поверх нашего.
-      try { el.value = next; } catch (_) {}
-
-      onChangeRef.current(next);
-
-      // Позиция курсора — после вставленного фрагмента
-      requestAnimationFrame(() => {
-        const pos = Math.min(start + text.length, next.length);
-        try { el.selectionStart = el.selectionEnd = pos; } catch (_) {}
-      });
-    };
-
-    // capture: true — критично для iOS, чтобы успеть до WKWebView
-    el.addEventListener('paste', handler as any, true);
-    return () => el.removeEventListener('paste', handler as any, true);
-  }, []);
-
-  const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (onSubmit && e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      onSubmit();
+    if (autoFocus) {
+      editorRef.current?.focus();
     }
+  }, [autoFocus]);
+
+  // ── Render ──────────────────────────────────────────────────────────
+  const showPlaceholder = !value;
+
+  const editorStyle: CSSProperties = {
+    width: '100%',
+    minHeight: 20,
+    maxHeight,
+    overflowY: 'auto',
+    color: 'var(--text-primary)',
+    fontSize: 15,
+    lineHeight: '20px',
+    padding: '10px 14px',
+    background: 'transparent',
+    border: 0,
+    outline: 0,
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    WebkitUserSelect: 'text',
+    userSelect: 'text',
+    // На iOS курсор иногда уходит в 0,0 без явного caret-color
+    caretColor: 'var(--text-accent)',
+    ...style,
   };
 
-  if (!showPasteButton) {
-    return (
-      <textarea
-        ref={innerRef}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        onKeyDown={onKey}
-        placeholder={placeholder}
-        maxLength={maxLength}
-        disabled={disabled}
-        autoFocus={autoFocus}
-        rows={1}
-        style={{
-          width: '100%',
-          background: 'transparent',
-          color: 'var(--text-primary)',
-          fontSize: 15,
-          lineHeight: '20px',
-          padding: '10px 14px',
-          border: 0,
-          outline: 0,
-          resize: 'none',
-          maxHeight,
-          overflowY: 'auto',
-          ...style,
-        }}
-      />
-    );
-  }
+  const placeholderStyle: CSSProperties = {
+    position: 'absolute',
+    top: editorStyle.padding ? '10px' : 0,
+    left: editorStyle.padding ? '14px' : 0,
+    color: 'var(--text-muted)',
+    pointerEvents: 'none',
+    whiteSpace: 'pre-wrap',
+    fontSize: editorStyle.fontSize,
+    lineHeight: editorStyle.lineHeight,
+  };
 
-  // Со встроенной кнопкой «Вставить»: оборачиваем в flex-контейнер,
-  // textarea снизу, кнопка сверху-справа.
+  const editor = (
+    <div style={{ position: 'relative', width: '100%' }}>
+      {showPlaceholder && placeholder && (
+        <div style={placeholderStyle}>{placeholder}</div>
+      )}
+      <div
+        ref={editorRef}
+        role="textbox"
+        aria-multiline="true"
+        contentEditable={!disabled}
+        suppressContentEditableWarning
+        onInput={onInput}
+        onPaste={onPaste}
+        onKeyDown={onKey}
+        spellCheck={false}
+        style={editorStyle}
+      />
+    </div>
+  );
+
+  if (!showPasteButton) return editor;
+
   return (
     <div style={{ width: '100%' }}>
       <div style={pasteRowStyle}>
@@ -291,35 +309,9 @@ export const AutoGrowTextarea = forwardRef<AutoGrowTextareaHandle, Props>(functi
           </svg>
           <span>{pasteBusy ? 'Вставляю…' : (pasteButtonLabel || 'Вставить')}</span>
         </button>
-        {pasteError && (
-          <span style={pasteErrorStyle}>{pasteError}</span>
-        )}
+        {pasteError && <span style={pasteErrorStyle}>{pasteError}</span>}
       </div>
-      <textarea
-        ref={innerRef}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        onKeyDown={onKey}
-        placeholder={placeholder}
-        maxLength={maxLength}
-        disabled={disabled}
-        autoFocus={autoFocus}
-        rows={1}
-        style={{
-          width: '100%',
-          background: 'transparent',
-          color: 'var(--text-primary)',
-          fontSize: 15,
-          lineHeight: '20px',
-          padding: '10px 14px',
-          border: 0,
-          outline: 0,
-          resize: 'none',
-          maxHeight,
-          overflowY: 'auto',
-          ...style,
-        }}
-      />
+      {editor}
     </div>
   );
 });
