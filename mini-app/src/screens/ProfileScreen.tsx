@@ -10,14 +10,13 @@
 //
 // Аватар — берётся из TG (photo_url), фоллбэк — инициал.
 // ═══════════════════════════════════════════════════════════════
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { Card } from '../components/Card';
 import { GradientButton } from '../components/GradientButton';
-import { BarChart } from '../components/BarChart';
 import { useMe } from '../contexts/MeContext';
-import { getStats, getStatsTimeline, type TimelinePoint } from '../api';
+import { getStats } from '../api';
 import { getTgUser } from '../auth';
 import { selectionHaptic, impactHaptic } from '../utils/haptics';
 
@@ -44,12 +43,6 @@ export function ProfileScreen() {
     { label: 'Дней в приложении', value: '1' },
   ]);
 
-  // Дневная (30) и месячная (12) активность для графиков.
-  // Грузим параллельно с базовой /stats — медленный запрос не блокирует цифры.
-  const [daily, setDaily] = useState<TimelinePoint[]>([]);
-  const [monthly, setMonthly] = useState<TimelinePoint[]>([]);
-  const [chartView, setChartView] = useState<'daily' | 'monthly'>('daily');
-
   useEffect(() => {
     getStats()
       .then(res => {
@@ -63,43 +56,7 @@ export function ProfileScreen() {
         ]);
       })
       .catch(() => {});
-
-    getStatsTimeline()
-      .then(res => {
-        if (!res?.ok) return;
-        setDaily(res.daily || []);
-        setMonthly(res.monthly || []);
-      })
-      .catch(() => {});
   }, []);
-
-  // Текущая активность для графика — переключается между day/month
-  const chartData = useMemo(() => {
-    if (chartView === 'daily') {
-      return {
-        requests:    daily.map(d => d.requests),
-        simulations: daily.map(d => d.simulations),
-        labels:      daily.map((d, i) => {
-          // Показываем подпись только каждый 5-й день — иначе слипается.
-          if (i % 5 !== 0 && i !== daily.length - 1) return '';
-          const [, mm, dd] = (d.date || '').split('-');
-          return `${dd}.${mm}`;
-        }),
-        total: daily.reduce((acc, d) => acc + d.requests + d.simulations, 0),
-      };
-    }
-    const monthNames = ['янв', 'фев', 'мар', 'апр', 'май', 'июн',
-                        'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
-    return {
-      requests:    monthly.map(d => d.requests),
-      simulations: monthly.map(d => d.simulations),
-      labels:      monthly.map(d => {
-        const [, mm] = (d.month || '').split('-');
-        return monthNames[parseInt(mm, 10) - 1] || '';
-      }),
-      total: monthly.reduce((acc, d) => acc + d.requests + d.simulations, 0),
-    };
-  }, [chartView, daily, monthly]);
 
   const tier = me?.tier ?? 'free';
   const tierLabel = TIER_LABEL[tier] ?? 'Free';
@@ -264,74 +221,6 @@ export function ProfileScreen() {
             </Card>
           ))}
         </div>
-
-        {/* Activity charts — daily / monthly switcher */}
-        <SectionTitle>Активность</SectionTitle>
-        <Card style={styles.chartCard}>
-          {/* Switcher */}
-          <div style={styles.chartSwitcher}>
-            {(['daily', 'monthly'] as const).map(v => {
-              const active = chartView === v;
-              return (
-                <button
-                  key={v}
-                  onClick={() => { selectionHaptic(); setChartView(v); }}
-                  style={{
-                    ...styles.chartChip,
-                    background: active ? 'var(--accent-primary)' : 'transparent',
-                    color: active ? '#fff' : 'var(--text-secondary)',
-                  }}
-                >
-                  {v === 'daily' ? '30 дней' : '12 месяцев'}
-                </button>
-              );
-            })}
-          </div>
-
-          <div style={styles.chartTotal}>
-            Всего за период: <b>{chartData.total}</b>
-          </div>
-
-          {/* Запросы */}
-          <div style={styles.chartBlock}>
-            <div style={styles.chartLabelRow}>
-              <span style={{ ...styles.chartLabelDot, background: 'var(--accent-primary)' }} />
-              <span style={styles.chartLabel}>Запросы</span>
-              <span style={styles.chartSum}>
-                {chartData.requests.reduce((a, b) => a + b, 0)}
-              </span>
-            </div>
-            <BarChart
-              data={chartData.requests}
-              labels={chartData.labels}
-              height={64}
-              color="var(--accent-primary)"
-              formatValue={v => `${v} запросов`}
-            />
-          </div>
-
-          {/* Симуляции */}
-          <div style={styles.chartBlock}>
-            <div style={styles.chartLabelRow}>
-              <span style={{ ...styles.chartLabelDot, background: '#A855F7' }} />
-              <span style={styles.chartLabel}>Симуляции</span>
-              <span style={styles.chartSum}>
-                {chartData.simulations.reduce((a, b) => a + b, 0)}
-              </span>
-            </div>
-            <BarChart
-              data={chartData.simulations}
-              labels={chartData.labels}
-              height={64}
-              color="#A855F7"
-              formatValue={v => `${v} симуляций`}
-            />
-          </div>
-
-          <div style={styles.chartHint}>
-            Обновляется в реальном времени. UTC-сутки.
-          </div>
-        </Card>
 
         {/* Settings list */}
         <SectionTitle>Меню</SectionTitle>
@@ -512,66 +401,6 @@ const styles: Record<string, CSSProperties> = {
   },
   statLabel: { fontSize: 11, color: 'var(--text-muted)' },
   statValue: { fontSize: 22, fontWeight: 700, color: 'var(--text-accent)' },
-
-  chartCard: {
-    padding: 16,
-  },
-  chartSwitcher: {
-    display: 'flex',
-    gap: 6,
-    padding: 4,
-    background: 'var(--bg-elevated)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 12,
-    marginBottom: 14,
-  },
-  chartChip: {
-    flex: 1,
-    padding: '8px 10px',
-    fontSize: 12,
-    fontWeight: 700,
-    border: 'none',
-    borderRadius: 9,
-    cursor: 'pointer',
-    transition: 'background 160ms, color 160ms',
-  },
-  chartTotal: {
-    fontSize: 12,
-    color: 'var(--text-muted)',
-    marginBottom: 12,
-  },
-  chartBlock: {
-    marginBottom: 14,
-  },
-  chartLabelRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 6,
-  },
-  chartLabelDot: {
-    display: 'inline-block',
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-  },
-  chartLabel: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: 600,
-    color: 'var(--text-secondary)',
-  },
-  chartSum: {
-    fontSize: 13,
-    fontWeight: 700,
-    color: 'var(--text-primary)',
-  },
-  chartHint: {
-    marginTop: 6,
-    fontSize: 10,
-    color: 'var(--text-muted)',
-    textAlign: 'center',
-  },
 
   menuList: {
     borderRadius: 16,

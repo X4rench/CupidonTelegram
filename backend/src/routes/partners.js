@@ -475,6 +475,123 @@ router.get('/admin/partners/:id', requireAdmin, (req, res) => {
   });
 });
 
+// ── GET /admin/partners/:id/timeline?metric=X ────────────────────────────────
+// Daily (30 дней) + monthly (12 месяцев) для метрик партнёра:
+//   new_referrals | paid_users | gross_revenue | commission
+// Используется в админ-карточке партнёра — клик на цифру открывает диаграмму.
+// Cache 24ч (in-memory, ключ = `${partnerId}:${metric}`).
+const _partnerTimelineCache = new Map();
+const PARTNER_TIMELINE_TTL_MS = 24 * 60 * 60 * 1000;
+const PARTNER_METRICS = new Set(['new_referrals', 'paid_users', 'gross_revenue', 'commission']);
+
+router.get('/admin/partners/:id/timeline', requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const metric = String(req.query.metric || '').trim();
+  if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: 'Неверный id' });
+  if (!PARTNER_METRICS.has(metric)) {
+    return res.status(400).json({
+      ok: false,
+      error: `metric должен быть один из: ${[...PARTNER_METRICS].join(', ')}`,
+    });
+  }
+
+  const partner = db.get('SELECT id FROM partners WHERE id = ?', id);
+  if (!partner) return res.status(404).json({ ok: false, error: 'Партнёр не найден' });
+
+  const cacheKey = `${id}:${metric}`;
+  const now = Date.now();
+  const cached = _partnerTimelineCache.get(cacheKey);
+  if (cached && cached.expires_at_ms > now) {
+    return res.json({
+      ok: true, metric,
+      daily: cached.daily,
+      monthly: cached.monthly,
+      last_updated_at: cached.last_updated_at,
+      cached: true,
+    });
+  }
+
+  const { daily, monthly } = computePartnerTimeline(id, metric);
+  const last_updated_at = new Date().toISOString();
+  _partnerTimelineCache.set(cacheKey, {
+    daily, monthly, last_updated_at,
+    expires_at_ms: now + PARTNER_TIMELINE_TTL_MS,
+  });
+
+  res.json({ ok: true, metric, daily, monthly, last_updated_at, cached: false });
+});
+
+function computePartnerTimeline(partnerId, metric) {
+  let dailyRaw, monthlyRaw;
+
+  if (metric === 'new_referrals') {
+    dailyRaw = db.all(
+      `SELECT strftime('%Y-%m-%d', attributed_at) as d, COUNT(*) as v
+         FROM partner_referrals
+        WHERE partner_id = ? AND attributed_at >= datetime('now', '-29 days')
+        GROUP BY d`, partnerId);
+    monthlyRaw = db.all(
+      `SELECT strftime('%Y-%m', attributed_at) as m, COUNT(*) as v
+         FROM partner_referrals
+        WHERE partner_id = ? AND attributed_at >= datetime('now', '-11 months', 'start of month')
+        GROUP BY m`, partnerId);
+  } else if (metric === 'paid_users') {
+    // Уникальные платящие — DISTINCT telegram_user_id в commission_table
+    dailyRaw = db.all(
+      `SELECT strftime('%Y-%m-%d', created_at) as d, COUNT(DISTINCT telegram_user_id) as v
+         FROM partner_commissions
+        WHERE partner_id = ? AND created_at >= datetime('now', '-29 days')
+        GROUP BY d`, partnerId);
+    monthlyRaw = db.all(
+      `SELECT strftime('%Y-%m', created_at) as m, COUNT(DISTINCT telegram_user_id) as v
+         FROM partner_commissions
+        WHERE partner_id = ? AND created_at >= datetime('now', '-11 months', 'start of month')
+        GROUP BY m`, partnerId);
+  } else if (metric === 'gross_revenue') {
+    dailyRaw = db.all(
+      `SELECT strftime('%Y-%m-%d', created_at) as d, COALESCE(SUM(gross_amount), 0) as v
+         FROM partner_commissions
+        WHERE partner_id = ? AND created_at >= datetime('now', '-29 days')
+        GROUP BY d`, partnerId);
+    monthlyRaw = db.all(
+      `SELECT strftime('%Y-%m', created_at) as m, COALESCE(SUM(gross_amount), 0) as v
+         FROM partner_commissions
+        WHERE partner_id = ? AND created_at >= datetime('now', '-11 months', 'start of month')
+        GROUP BY m`, partnerId);
+  } else { // commission
+    dailyRaw = db.all(
+      `SELECT strftime('%Y-%m-%d', created_at) as d, COALESCE(SUM(commission_amount), 0) as v
+         FROM partner_commissions
+        WHERE partner_id = ? AND created_at >= datetime('now', '-29 days')
+        GROUP BY d`, partnerId);
+    monthlyRaw = db.all(
+      `SELECT strftime('%Y-%m', created_at) as m, COALESCE(SUM(commission_amount), 0) as v
+         FROM partner_commissions
+        WHERE partner_id = ? AND created_at >= datetime('now', '-11 months', 'start of month')
+        GROUP BY m`, partnerId);
+  }
+
+  // Заполняем дни/месяцы нулями
+  const dMap = new Map(dailyRaw.map(r => [r.d, r.v]));
+  const mMap = new Map(monthlyRaw.map(r => [r.m, r.v]));
+  const today = new Date();
+  const daily = [];
+  for (let i = 29; i >= 0; i--) {
+    const dt = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - i));
+    const key = dt.toISOString().slice(0, 10);
+    daily.push({ date: key, value: dMap.get(key) ?? 0 });
+  }
+  const monthly = [];
+  const cur = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+  for (let i = 11; i >= 0; i--) {
+    const dt = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() - i, 1));
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const key = `${dt.getUTCFullYear()}-${mm}`;
+    monthly.push({ month: key, value: mMap.get(key) ?? 0 });
+  }
+  return { daily, monthly };
+}
+
 router.patch('/admin/partners/:id', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const partner = db.get('SELECT * FROM partners WHERE id = ?', id);

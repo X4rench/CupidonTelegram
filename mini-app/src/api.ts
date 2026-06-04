@@ -177,21 +177,6 @@ export async function getStats(): Promise<StatsResponse> {
   return fetchAuthed<StatsResponse>('/users/stats');
 }
 
-/** Дневная (30) и месячная (12) активность для графиков в Профиле. */
-export interface TimelinePoint {
-  date?: string;   // 'YYYY-MM-DD' для daily
-  month?: string;  // 'YYYY-MM' для monthly
-  requests: number;
-  simulations: number;
-}
-export interface StatsTimelineResponse {
-  ok: boolean;
-  daily: TimelinePoint[];
-  monthly: TimelinePoint[];
-}
-export async function getStatsTimeline(): Promise<StatsTimelineResponse> {
-  return fetchAuthed<StatsTimelineResponse>('/users/stats/timeline');
-}
 
 /** Подписка/лимиты — для Paywall (Phase H). */
 export async function getSubscription(): Promise<any> {
@@ -713,6 +698,8 @@ export const adminApi = {
       body: JSON.stringify(payload),
     }),
   getStats:    () => fetchAuthed<AdminStatsResp>('/admin/stats'),
+  getStatsTimeline: (metric: AdminMetricKey) =>
+    fetchAuthed<AdminTimelineResp>(`/admin/stats/timeline?metric=${encodeURIComponent(metric)}`),
   getLogs:     (limit = 100) => fetchAuthed<AdminLogsResp>(`/admin/logs?limit=${limit}`),
   getAuditLog: (limit = 100, action?: string) =>
     fetchAuthed<AdminAuditResp>(`/admin/audit-log?limit=${limit}${action ? `&action=${encodeURIComponent(action)}` : ''}`),
@@ -910,4 +897,28 @@ export const partnerAdminApi = {
       method: 'POST',
       body: JSON.stringify({ amount, note }),
     }),
+
+  getTimeline: (id: number | string, metric: PartnerMetricKey) =>
+    fetchAuthed<AdminTimelineResp>(
+      `/admin/partners/${id}/timeline?metric=${encodeURIComponent(metric)}`
+    ),
 };
+
+// ── Admin timeline (для диаграмм в админке) ────────────────────────────────
+export type AdminMetricKey =
+  | 'users' | 'analyses' | 'simulations' | 'rejections'
+  | 'requests' | 'paid_subs' | 'partners';
+
+export type PartnerMetricKey =
+  | 'new_referrals' | 'paid_users' | 'gross_revenue' | 'commission';
+
+export interface TimelineDaily { date: string; value: number }
+export interface TimelineMonthly { month: string; value: number }
+export interface AdminTimelineResp {
+  ok: boolean;
+  metric: string;
+  daily: TimelineDaily[];
+  monthly: TimelineMonthly[];
+  last_updated_at: string;
+  cached: boolean;
+}

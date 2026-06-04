@@ -139,6 +139,7 @@ function NoAccess({ onBack }: { onBack: () => void }) {
 // ─── Stats Tab ───────────────────────────────────────────────────────────────
 
 function StatsTab() {
+  const nav = useNavigate();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -162,24 +163,52 @@ function StatsTab() {
   if (error)   return <ErrorBlock message={error} onRetry={load} />;
   if (!stats)  return null;
 
-  const metrics: { label: string; value: string | number }[] = [
-    { label: 'Пользователей',     value: stats.users },
-    { label: 'Анализов',          value: stats.analyses },
-    { label: 'Симуляций',         value: stats.simulations },
-    { label: 'Средний скор',      value: stats.avg_score != null ? stats.avg_score.toFixed(1) : '—' },
-    { label: 'Запросов сегодня',  value: stats.requests_today },
+  // metric — ключ для /admin/chart/<metric> (null → не кликабельна, без диаграммы)
+  const metrics: { label: string; value: string | number; emoji: string; metric: string | null }[] = [
+    { label: 'Пользователей',     value: stats.users,        emoji: '👥', metric: 'users' },
+    { label: 'Анализов',          value: stats.analyses,     emoji: '🔍', metric: 'analyses' },
+    { label: 'Симуляций',         value: stats.simulations,  emoji: '🎭', metric: 'simulations' },
+    { label: 'Средний скор',      value: stats.avg_score != null ? stats.avg_score.toFixed(1) : '—',
+                                                             emoji: '⭐', metric: null },
+    { label: 'Запросов сегодня',  value: stats.requests_today, emoji: '⚡', metric: 'requests' },
   ];
-  if (stats.rejections != null) metrics.push({ label: 'Разборы отказов', value: stats.rejections });
-  if (stats.paid_subs  != null) metrics.push({ label: 'Активных подписок', value: stats.paid_subs });
+  if (stats.rejections != null) metrics.push({ label: 'Разборы отказов', value: stats.rejections, emoji: '💔', metric: 'rejections' });
+  if (stats.paid_subs  != null) metrics.push({ label: 'Активные подписки', value: stats.paid_subs, emoji: '💎', metric: 'paid_subs' });
+  metrics.push({ label: 'Партнёры', value: '→', emoji: '💼', metric: 'partners' });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {metrics.map((m) => (
-        <Card key={m.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{m.label}</span>
-          <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-accent)' }}>{m.value}</span>
-        </Card>
-      ))}
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
+        Тапни по карточке → откроется диаграмма за 30 дней / 12 месяцев.
+        Обновление — раз в 24 часа.
+      </div>
+      {metrics.map((m) => {
+        const clickable = m.metric != null;
+        return (
+          <Card
+            key={m.label}
+            onClick={clickable ? () => { selectionHaptic(); nav(`/admin/chart/${m.metric}`); } : undefined}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              cursor: clickable ? 'pointer' : 'default',
+              transition: 'transform 80ms',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 22 }}>{m.emoji}</span>
+              <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{m.label}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-accent)' }}>{m.value}</span>
+              {clickable && (
+                <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth={2}>
+                  <polyline points="9,18 15,12 9,6" />
+                </svg>
+              )}
+            </div>
+          </Card>
+        );
+      })}
       <div style={{ marginTop: 8 }}>
         <SecondaryButton onClick={load} full>Обновить</SecondaryButton>
       </div>

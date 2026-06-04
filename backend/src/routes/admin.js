@@ -175,6 +175,171 @@ router.get('/stats', (req, res) => {
   res.json({ ok: true, stats, recent_users });
 });
 
+// ── GET /api/v1/admin/stats/timeline ─────────────────────────────────────────
+// Daily (30 дней) + monthly (12 месяцев) активность по выбранной метрике.
+// metric ∈ users | analyses | simulations | rejections | requests | paid_subs | partners
+//
+// Используется в админ-панели для графиков (клик по карточке → этот endpoint).
+//
+// Кэшируется в памяти на 24ч (один процесс Node, прод). Перезагрузка
+// сервиса сбрасывает кэш — нормально (раз в сутки точно перезагружается).
+// Кэш — по metric. После 24ч пересчитываем при следующем запросе.
+const _timelineCache = new Map(); // metric -> { daily, monthly, last_updated_at, expires_at_ms }
+const TIMELINE_TTL_MS = 24 * 60 * 60 * 1000;
+
+const METRIC_QUERIES = {
+  // metric → { table, dateColumn } для простых COUNT-метрик по created_at.
+  users:       { table: 'users',                col: 'created_at' },
+  analyses:    { table: 'analysis_sessions',    col: 'created_at' },
+  simulations: { table: 'simulator_sessions',   col: 'created_at' },
+  rejections:  { table: 'rejection_analyses',   col: 'created_at' },
+  requests:    { table: 'request_logs',         col: 'created_at' },
+  partners:    { table: 'partners',             col: 'created_at' },
+};
+
+function computeTimeline(metric) {
+  // paid_subs — особый случай: snapshot активных подписок на конец дня.
+  if (metric === 'paid_subs') {
+    return computePaidSubsTimeline();
+  }
+  const cfg = METRIC_QUERIES[metric];
+  if (!cfg) return null;
+
+  const dailyRaw = db.all(
+    `SELECT strftime('%Y-%m-%d', ${cfg.col}) as d, COUNT(*) as c
+       FROM ${cfg.table}
+      WHERE ${cfg.col} >= datetime('now', '-29 days')
+      GROUP BY d`
+  );
+  const monthlyRaw = db.all(
+    `SELECT strftime('%Y-%m', ${cfg.col}) as m, COUNT(*) as c
+       FROM ${cfg.table}
+      WHERE ${cfg.col} >= datetime('now', '-11 months', 'start of month')
+      GROUP BY m`
+  );
+  return { daily: buildDaily(dailyRaw), monthly: buildMonthly(monthlyRaw) };
+}
+
+/**
+ * Активные подписки на каждый из последних 30 дней / 12 месяцев.
+ * Активная = started_at <= D AND expires_at > D (для дневного среза D = конец дня UTC).
+ * O(дни * подписки) — на нашем масштабе ок.
+ */
+function computePaidSubsTimeline() {
+  // Берём все подписки чьи expires_at > 30 дней назад (могли быть активными)
+  // или started_at в пределах окна. Это оставляет небольшое окно сверх — норм.
+  const subs = db.all(
+    `SELECT started_at, expires_at FROM subscriptions
+      WHERE datetime(expires_at) > datetime('now', '-12 months')`
+  );
+
+  const today = new Date();
+  const daily = [];
+  for (let i = 29; i >= 0; i--) {
+    const dt = new Date(Date.UTC(
+      today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - i,
+      23, 59, 59
+    ));
+    const iso = dt.toISOString().slice(0, 19).replace('T', ' ');
+    const dateKey = dt.toISOString().slice(0, 10);
+    const count = subs.filter(s =>
+      s.started_at <= iso && s.expires_at > iso
+    ).length;
+    daily.push({ date: dateKey, value: count });
+  }
+
+  const monthly = [];
+  const cur = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+  for (let i = 11; i >= 0; i--) {
+    const dt = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() - i + 1, 0, 23, 59, 59));
+    const iso = dt.toISOString().slice(0, 19).replace('T', ' ');
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const monthKey = `${dt.getUTCFullYear()}-${mm}`;
+    const count = subs.filter(s =>
+      s.started_at <= iso && s.expires_at > iso
+    ).length;
+    monthly.push({ month: monthKey, value: count });
+  }
+
+  return { daily, monthly };
+}
+
+function buildDaily(raw) {
+  const map = new Map(raw.map(r => [r.d, r.c]));
+  const today = new Date();
+  const out = [];
+  for (let i = 29; i >= 0; i--) {
+    const dt = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - i));
+    const key = dt.toISOString().slice(0, 10);
+    out.push({ date: key, value: map.get(key) ?? 0 });
+  }
+  return out;
+}
+
+function buildMonthly(raw) {
+  const map = new Map(raw.map(r => [r.m, r.c]));
+  const today = new Date();
+  const out = [];
+  const cur = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+  for (let i = 11; i >= 0; i--) {
+    const dt = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() - i, 1));
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const key = `${dt.getUTCFullYear()}-${mm}`;
+    out.push({ month: key, value: map.get(key) ?? 0 });
+  }
+  return out;
+}
+
+const ALLOWED_METRICS = new Set([
+  'users', 'analyses', 'simulations', 'rejections',
+  'requests', 'paid_subs', 'partners',
+]);
+
+router.get('/stats/timeline', (req, res) => {
+  const metric = String(req.query.metric || '').trim();
+  if (!ALLOWED_METRICS.has(metric)) {
+    return res.status(400).json({
+      ok: false,
+      error: `metric должен быть один из: ${[...ALLOWED_METRICS].join(', ')}`
+    });
+  }
+
+  const now = Date.now();
+  const cached = _timelineCache.get(metric);
+  if (cached && cached.expires_at_ms > now) {
+    return res.json({
+      ok: true,
+      metric,
+      daily: cached.daily,
+      monthly: cached.monthly,
+      last_updated_at: cached.last_updated_at,
+      cached: true,
+    });
+  }
+
+  const computed = computeTimeline(metric);
+  if (!computed) {
+    return res.status(500).json({ ok: false, error: 'Не удалось посчитать метрику' });
+  }
+
+  const last_updated_at = new Date().toISOString();
+  _timelineCache.set(metric, {
+    daily: computed.daily,
+    monthly: computed.monthly,
+    last_updated_at,
+    expires_at_ms: now + TIMELINE_TTL_MS,
+  });
+
+  res.json({
+    ok: true,
+    metric,
+    daily: computed.daily,
+    monthly: computed.monthly,
+    last_updated_at,
+    cached: false,
+  });
+});
+
 // ── GET /api/v1/admin/logs ────────────────────────────────────────────────────
 router.get('/logs', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);

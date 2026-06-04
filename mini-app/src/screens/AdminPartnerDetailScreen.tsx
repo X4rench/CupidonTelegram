@@ -224,6 +224,28 @@ export function AdminPartnerDetailScreen() {
       </div>
 
       <div style={styles.section}>
+        <SectionTitle icon="📊">Метрики (тапни для диаграммы)</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <MetricCard
+            emoji="🆕" label="Рефералы" value={String(stats_30d.new_referrals)}
+            onClick={() => { selectionHaptic(); nav(`/admin/partners/${partner.id}/chart/new_referrals`); }}
+          />
+          <MetricCard
+            emoji="💳" label="Платящие" value={`${stats_30d.paid_users} (${stats_30d.conversion_pct}%)`}
+            onClick={() => { selectionHaptic(); nav(`/admin/partners/${partner.id}/chart/paid_users`); }}
+          />
+          <MetricCard
+            emoji="💰" label="Валовая" value={`${stats_30d.by_tier_revenue.basic + stats_30d.by_tier_revenue.premium + stats_30d.by_tier_revenue.day_pass} ₽`}
+            onClick={() => { selectionHaptic(); nav(`/admin/partners/${partner.id}/chart/gross_revenue`); }}
+          />
+          <MetricCard
+            emoji="💸" label="Заработано" value={`${formatRub(balance.lifetime_earned)} ₽`}
+            onClick={() => { selectionHaptic(); nav(`/admin/partners/${partner.id}/chart/commission`); }}
+          />
+        </div>
+      </div>
+
+      <div style={styles.section}>
         <SectionTitle icon="📈">Новые рефералы (30 дней)</SectionTitle>
         <Card>
           <BarChart
@@ -364,6 +386,36 @@ function Header({ onBack, title }: { onBack: () => void; title: string }) {
       <span style={styles.headerTitle}>{title}</span>
       <div style={{ width: 40 }} />
     </div>
+  );
+}
+
+function MetricCard({ emoji, label, value, onClick }: {
+  emoji: string; label: string; value: string; onClick: () => void;
+}) {
+  return (
+    <Card
+      onClick={onClick}
+      style={{
+        display: 'flex', flexDirection: 'column', gap: 4,
+        cursor: 'pointer',
+        position: 'relative',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 18 }}>{emoji}</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+          {label}
+        </span>
+      </div>
+      <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-accent)' }}>{value}</span>
+      <svg
+        width={14} height={14} viewBox="0 0 24 24" fill="none"
+        stroke="var(--text-muted)" strokeWidth={2}
+        style={{ position: 'absolute', top: 12, right: 12 }}
+      >
+        <polyline points="9,18 15,12 9,6" />
+      </svg>
+    </Card>
   );
 }
 

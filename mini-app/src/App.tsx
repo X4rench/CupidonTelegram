@@ -58,6 +58,7 @@ import { ThemeScreen } from './screens/ThemeScreen';
 // Phase L — Partner program
 import { PartnerCabinetScreen } from './screens/PartnerCabinetScreen';
 import { AdminPartnerDetailScreen } from './screens/AdminPartnerDetailScreen';
+import { AdminChartScreen } from './screens/AdminChartScreen';
 
 export default function App() {
   return (
@@ -104,6 +105,8 @@ export default function App() {
             <Route path="/admin"                element={<AdminScreen />} />
             <Route path="/admin/partners"       element={<AdminScreen />} />
             <Route path="/admin/partners/:id"   element={<AdminPartnerDetailScreen />} />
+            <Route path="/admin/chart/:metric"                element={<AdminChartScreen />} />
+            <Route path="/admin/partners/:id/chart/:metric"   element={<AdminChartScreen />} />
             <Route path="/partner-cabinet"      element={<PartnerCabinetScreen />} />
 
             {/* 404 fallback */}
