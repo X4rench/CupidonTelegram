@@ -10,6 +10,7 @@ import { Chip } from '../components/Chip';
 import { GradientButton } from '../components/GradientButton';
 import { SecondaryButton } from '../components/SecondaryButton';
 import { AutoGrowTextarea } from '../components/AutoGrowTextarea';
+import { IOSPasteHint } from '../components/IOSPasteHint';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
 import { generateSupport, ApiError } from '../api';
@@ -85,10 +86,9 @@ export function SupportScreen() {
           onChange={setSituation}
           placeholder="Например: у неё умер кот, она пишет «я не могу», уже два дня не отвечает на звонки"
           maxHeight={220}
-          pasteButton
-          pasteButtonLabel="Вставить из буфера"
           style={{ minHeight: 100 }}
         />
+        <IOSPasteHint />
 
         <label style={styles.label}>Что у неё (опц.)</label>
         <div style={styles.tagsRow}>

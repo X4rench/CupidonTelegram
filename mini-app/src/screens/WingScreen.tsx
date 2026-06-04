@@ -15,6 +15,7 @@ import { Chip } from '../components/Chip';
 import { GradientButton } from '../components/GradientButton';
 import { SecondaryButton } from '../components/SecondaryButton';
 import { AutoGrowTextarea } from '../components/AutoGrowTextarea';
+import { IOSPasteHint } from '../components/IOSPasteHint';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic, selectionHaptic } from '../utils/haptics';
 import {
@@ -474,8 +475,6 @@ export function WingScreen() {
               onChange={(v) => updateCur({ text: v })}
               placeholder={'Вставь сюда переписку с ней.\nКаждое сообщение — с новой строки.\n\nЯ: привет\nОна: привет, как сам?'}
               maxHeight={400}
-              pasteButton
-              pasteButtonLabel="Вставить из буфера"
               style={{
                 padding: '12px 4px',
                 minHeight: 140,
@@ -483,6 +482,7 @@ export function WingScreen() {
                 fontSize: 15,
               }}
             />
+            <IOSPasteHint />
             {/* Чекбокс «использовать прошлый контекст» убран по запросу клиента.
                 Возможность вернуть — флаг contextEnabled остаётся в state, но
                 теперь всегда false (AI анализирует только текущий текст). */}

@@ -9,6 +9,7 @@ import { Card } from '../components/Card';
 import { GradientButton } from '../components/GradientButton';
 import { SecondaryButton } from '../components/SecondaryButton';
 import { AutoGrowTextarea } from '../components/AutoGrowTextarea';
+import { IOSPasteHint } from '../components/IOSPasteHint';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
 import { analyzeRejection, ApiError } from '../api';
@@ -75,10 +76,9 @@ export function RejectionScreen() {
           onChange={setText}
           placeholder="Я: Привет, как дела?&#10;Она: Норм. А ты что хочешь?&#10;Я: …"
           maxHeight={300}
-          pasteButton
-          pasteButtonLabel="Вставить из буфера"
           style={{ minHeight: 140 }}
         />
+        <IOSPasteHint />
 
         <div style={{ marginTop: 16 }}>
           <GradientButton full loading={loading} onClick={handleSubmit}>

@@ -10,6 +10,7 @@ import { Chip } from '../components/Chip';
 import { GradientButton } from '../components/GradientButton';
 import { SecondaryButton } from '../components/SecondaryButton';
 import { AutoGrowTextarea } from '../components/AutoGrowTextarea';
+import { IOSPasteHint } from '../components/IOSPasteHint';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
 import { generateFirstMessage, ApiError } from '../api';
@@ -103,10 +104,9 @@ export function FirstMessageScreen() {
           onChange={setProfile}
           placeholder="Например: лет 25, учится на дизайнера, любит кофейни, котов и хайкинг…"
           maxHeight={180}
-          pasteButton
-          pasteButtonLabel="Вставить из буфера"
           style={{ minHeight: 80 }}
         />
+        <IOSPasteHint />
 
         <div style={{ marginTop: 16 }}>
           <GradientButton full loading={loading} onClick={handleSubmit}>
