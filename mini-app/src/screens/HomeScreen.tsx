@@ -10,7 +10,7 @@
 //
 // Стили — inline через объект `styles` внизу файла.
 // ═══════════════════════════════════════════════════════════════
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { Card } from '../components/Card';
@@ -18,6 +18,7 @@ import { useMe } from '../contexts/MeContext';
 import { getStats } from '../api';
 import { impactHaptic, selectionHaptic } from '../utils/haptics';
 import { getTgUser } from '../auth';
+import { getTipOfDay } from '../utils/dailyTips';
 
 interface QuickAction {
   key: string;
@@ -91,6 +92,9 @@ export function HomeScreen() {
   const greetingName = me?.user_profile?.name || me?.first_name || 'друг';
   const avatarText = (greetingName.trim() || 'C').slice(0, 1).toUpperCase();
   const avgDisplay = stats.avgScore != null ? stats.avgScore.toFixed(1) : '—';
+  // Совет дня — детерминированно по UTC-дате (см. utils/dailyTips.ts).
+  // Меняется каждые сутки. useMemo чтобы не пересчитывалось на ререндерах.
+  const tipOfDay = useMemo(() => getTipOfDay(), []);
 
   return (
     <Layout withTabBar>
@@ -181,9 +185,7 @@ export function HomeScreen() {
               </div>
               <div>
                 <div style={styles.tipTitle}>Совет дня</div>
-                <p style={styles.tipText}>
-                  Лучшее первое сообщение — то, в котором ты замечаешь деталь из её профиля и задаёшь конкретный вопрос. Без «привет, как дела».
-                </p>
+                <p style={styles.tipText}>{tipOfDay}</p>
               </div>
             </div>
           </Card>

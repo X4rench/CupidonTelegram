@@ -148,49 +148,14 @@ router.get('/stats', (req, res) => {
 });
 
 // ── POST /api/v1/users/claim-tg-bonus ────────────────────────────────────────
-// Подписка на Telegram-канал → +5 бесплатных генераций.
-// В TMA-версии: проверка через флаг user.tg_bonus_claimed (telegram_user_id
-// уникален → одна заявка на TG-аккаунт). Никаких durable hardware-таблиц.
-// Реальная подписка проверяется через getChatMember если TG_BONUS_CHANNEL_ID
-// задан (формат -100xxxxxxxxxx). Без env — fallback на старое поведение (DEV).
-router.post('/claim-tg-bonus', async (req, res) => {
-  const user = db.get('SELECT * FROM users WHERE telegram_user_id = ?', req.tgUser.id);
-  if (!user) return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
-  if (user.tg_bonus_claimed) {
-    return res.status(400).json({ ok: false, error: 'Бонус уже получен' });
-  }
-
-  // Проверка подписки на канал. Если env не задан — warn в DEV-режиме и пропускаем.
-  if (REQUIRED_CHANNEL) {
-    try {
-      const member = await callBotApi('getChatMember', {
-        chat_id: REQUIRED_CHANNEL,
-        user_id: req.tgUser.id,
-      });
-      const allowedStatuses = ['member', 'administrator', 'creator'];
-      if (!member || !allowedStatuses.includes(member.status)) {
-        return res.status(403).json({ ok: false, error: 'Подпишись на канал, чтобы получить бонус' });
-      }
-    } catch (err) {
-      console.error('[claim-tg-bonus] getChatMember failed:', err?.message || err);
-      return res.status(503).json({ ok: false, error: 'Не удалось проверить подписку. Попробуй позже.' });
-    }
-  } else {
-    console.warn('[claim-tg-bonus] TG_BONUS_CHANNEL_ID не задан — проверка подписки пропущена (DEV-режим)');
-  }
-
-  const bonusQuota = 5;
-  db.run(
-    `UPDATE users SET tg_bonus_claimed = 1,
-                      tg_bonus_quota = COALESCE(tg_bonus_quota, 0) + ?
-     WHERE id = ?`,
-    bonusQuota, user.id
-  );
-
-  res.json({
-    ok: true,
-    bonus_quota: bonusQuota,
-    total_quota: (user.tg_bonus_quota || 0) + bonusQuota,
+// DEPRECATED: бонус за подписку на TG-канал убран по запросу клиента
+// (экономика: +5 запросов = ~150₽ убытка на подписчика). Endpoint оставлен
+// чтобы старые билды фронта не падали 404, но всегда возвращает 410 Gone.
+// Канал остаётся как контент-маркетинг — без денежной плюшки.
+router.post('/claim-tg-bonus', (_req, res) => {
+  res.status(410).json({
+    ok: false,
+    error: 'Бонус за подписку на канал больше не действует. Спасибо что с нами!',
   });
 });
 
