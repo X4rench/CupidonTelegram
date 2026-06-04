@@ -1,90 +1,94 @@
 // ═══════════════════════════════════════════════════════════════
-// PaywallScreen — экран оплаты подписки за Telegram Stars.
+// PaywallScreen — экран покупки подписки и +запросов (только ЮКасса).
+//
+// Stars-оплата убрана из UI. На бэке функции createStarsInvoice /
+// startStarsPayment остались как библиотечные, но не вызываются отсюда.
 //
 // Маршрут: /paywall — открывается:
 //   - из usePaywall().open({reason}) (через декларативный mount в App.tsx)
 //   - или прямой навигацией с любого экрана
 //
-// Тарифы (цены фиксированно в бэкенде, на UI отображаем константы):
-//   - Basic    199 ⭐ — 30 дней, 30 запросов/день, без NSFW
-//   - Premium  499 ⭐ — 30 дней, 100 запросов/день, NSFW unlock
-//   - DayPass   50 ⭐ — 24ч без лимита (только если уже Basic/Premium активен)
+// Тарифы (точные цены — в бэкенде YK_PRICE_*):
+//   - Basic    280 ₽ / месяц — 30 запросов/день, все режимы
+//   - Premium  700 ₽ / месяц — 100 запросов/день, 18+ персонажи
+//   - +100 запросов (Day Pass) 70 ₽ — пополнение tg_bonus_quota
+//     (НЕ создаёт subscription, НЕ меняет tier, тратится по 1 за запрос)
 //
 // Поток оплаты:
-//   1. Тап «Купить за N⭐» → startStarsPayment(plan) → WebApp.openInvoice
-//   2. TG показывает нативный экран Stars
-//   3. callback получает 'paid' | 'cancelled' | 'failed' | 'pending'
-//   4. 'paid' → notificationHaptic('success') → me.refresh() →
-//      usePaywall().close() → nav(-1) + toast «Подписка активирована»
-//   5. иначе — notificationHaptic('error'), остаёмся на экране
+//   1. Тап «Купить за NNN ₽ картой» → createYookassaInvoice(plan)
+//   2. Открываем confirmation_url через WebApp.openLink / window.open
+//   3. Polling /users/me каждые 3с × 10 — ждём пока вебхук обновит:
+//        - для basic/premium  — tier
+//        - для day_pass       — tg_bonus_quota
+//   4. На успех — toast + закрытие экрана
+//
+// Если бэк вернул 503 (YK_SHOP_ID не задан) — показываем сообщение
+// «Платежи временно недоступны».
 // ═══════════════════════════════════════════════════════════════
-import { useCallback, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useMe } from '../contexts/MeContext';
 import { usePaywall, type PaywallReason } from '../contexts/PaywallContext';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
-import { startStarsPayment, isStarsPaymentAvailable } from '../utils/payments';
 import { createYookassaInvoice, getMe, type StarsPlan } from '../api';
 
-// Курс Stars → ₽ для отображения примерной рублёвой цены. Stars покупаются
-// через @PremiumBot за рубли по курсу ~1.4-1.5 ₽/звезда (зависит от региона).
-// Точная цена видна юзеру при открытии invoice в TG. Здесь — только подсказка.
-const STARS_TO_RUB = parseFloat(import.meta.env.VITE_STARS_TO_RUB || '1.4') || 1.4;
-
-// ЮКасса включена? Проверка через env-флаг VITE_YOOKASSA_ENABLED.
-// При false — вторая кнопка "Купить картой" не отображается.
-const YOOKASSA_ENABLED = (import.meta.env.VITE_YOOKASSA_ENABLED ?? '0') === '1';
-
-// Цены в рублях (для UI). Точные суммы — на бэке в YK_PRICE_*.
+// Цены в рублях для UI. Точные суммы — на бэкенде в YK_PRICE_*.
 const RUB_PRICES: Record<StarsPlan, number> = {
-  basic: parseInt(import.meta.env.VITE_RUB_PRICE_BASIC || '280', 10) || 280,
-  premium: parseInt(import.meta.env.VITE_RUB_PRICE_PREMIUM || '700', 10) || 700,
+  basic:    parseInt(import.meta.env.VITE_RUB_PRICE_BASIC || '280', 10) || 280,
+  premium:  parseInt(import.meta.env.VITE_RUB_PRICE_PREMIUM || '700', 10) || 700,
   day_pass: parseInt(import.meta.env.VITE_RUB_PRICE_DAY_PASS || '70', 10) || 70,
 };
 
-// ── Конфиг тарифов ───────────────────────────────────────────────────────────
-// Source-of-truth для цен — backend (process.env.STARS_PRICE_*).
-// Здесь — только для отображения. Если бэкенд изменит цену — TG покажет
-// реальную сумму при openInvoice, а UI поправится в следующем релизе.
+// Количество запросов которые добавляет Day Pass. Должно совпадать с
+// DAY_PASS_BONUS_QUOTA на бэке (default 100).
+const DAY_PASS_BONUS = parseInt(import.meta.env.VITE_DAY_PASS_BONUS || '100', 10) || 100;
+
 interface PlanConfig {
   id: StarsPlan;
   title: string;
-  price: number;
-  badge?: string;
-  badgeAccent?: boolean;
+  subtitle: string;
   features: string[];
-  highlight?: boolean;
+  highlight?: boolean; // выделить рамкой и градиентом
+  badge?: string;      // top-right бейдж («⭐ САМЫЙ ПОПУЛЯРНЫЙ»)
 }
 
-const PLAN_CONFIGS: PlanConfig[] = [
+const SUBSCRIPTION_PLANS: PlanConfig[] = [
   {
     id: 'basic',
     title: 'Basic',
-    price: 199,
-    badge: '30 дней',
+    subtitle: '/ месяц',
     features: [
-      '30 запросов в день',
-      'Симулятор, Стрела, Первое сообщение',
-      'Разбор отказов и поддержка',
+      '30 анализов в день',
+      'Все режимы AI',
+      'История переписок',
     ],
   },
   {
     id: 'premium',
     title: 'Premium',
-    price: 499,
-    badge: 'Хит',
-    badgeAccent: true,
+    subtitle: '/ месяц',
     highlight: true,
+    badge: 'САМЫЙ ПОПУЛЯРНЫЙ',
     features: [
-      '100 запросов в день',
-      'Все режимы + расширенный контекст',
-      'Приоритет в очереди AI',
-      'NSFW-режим в Симуляторе',
+      '100 анализов в день',
+      '18+ персонажи в симуляторе',
+      'Приоритетная поддержка',
+      'Расширенный контекст и история',
     ],
   },
-  // day_pass рендерим отдельно — только если уже есть активный Basic/Premium
 ];
+
+const DAY_PASS_PLAN: PlanConfig = {
+  id: 'day_pass',
+  title: `+${DAY_PASS_BONUS} запросов`,
+  subtitle: '(одноразово)',
+  features: [
+    'Прибавляется к дневному лимиту',
+    'Не сгорает, тратится по 1 за запрос',
+    'Работает на любом тарифе, включая Free',
+  ],
+};
 
 export function PaywallScreen() {
   const nav = useNavigate();
@@ -92,18 +96,13 @@ export function PaywallScreen() {
   const { me, refresh } = useMe();
   const paywall = usePaywall();
 
-  // reason может приходить либо из контекста, либо из location.state (если
-  // экран открыт прямой навигацией с явным состоянием).
   const reason: PaywallReason = paywall.reason
     ?? (location.state as any)?.reason
     ?? 'manual';
-  const defaultPlan: StarsPlan = paywall.defaultPlan
-    ?? (location.state as any)?.defaultPlan
-    ?? 'premium';
 
   const [busyPlan, setBusyPlan] = useState<StarsPlan | null>(null);
-  const [toast, setToast] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
-  const [selected, setSelected] = useState<StarsPlan>(defaultPlan);
+  const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [paymentsUnavailable, setPaymentsUnavailable] = useState(false);
 
   const closeAndBack = useCallback(() => {
     paywall.close();
@@ -112,71 +111,35 @@ export function PaywallScreen() {
 
   useBackButton(closeAndBack);
 
-  // Есть ли активная подписка → показываем Day Pass
-  const hasActiveSub = !!me && (me.tier === 'basic' || me.tier === 'premium');
-  const tgAvailable = isStarsPaymentAvailable();
+  // Авто-скрытие toast через 4с (для не-success ситуаций)
+  useEffect(() => {
+    if (!toast || toast.kind === 'success') return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const heading = useMemo(() => {
     if (reason === 'limit') return 'Лимит исчерпан';
-    if (reason === 'nsfw')  return 'NSFW открывается в Premium';
-    return 'Купидон Premium';
+    if (reason === 'nsfw')  return '18+ открывается в Premium';
+    return 'Открой все возможности Купидона';
   }, [reason]);
 
   const subheading = useMemo(() => {
     if (reason === 'limit') {
       const used = me?.daily_used ?? 0;
       const limit = me?.daily_limit ?? 5;
-      return `Ты использовал ${used} из ${limit} бесплатных запросов сегодня. Подпишись чтобы продолжить.`;
+      return `Использовано ${used} из ${limit} запросов сегодня. Выбери тариф или докупи запросы.`;
     }
     if (reason === 'nsfw') {
-      return 'Откровенные сценарии в Симуляторе доступны в Premium-тире.';
+      return 'Откровенные сценарии в Симуляторе доступны на Premium-тарифе.';
     }
-    return 'Безлимитная практика, приоритет, NSFW. Оплата за Telegram Stars.';
+    return 'Безлимитная практика, расширенный AI и приоритетная поддержка.';
   }, [reason, me]);
 
-  const handleBuy = useCallback(async (plan: StarsPlan) => {
-    if (busyPlan) return;
-    impactHaptic('medium');
-    setBusyPlan(plan);
-    setToast(null);
+  const tier = me?.tier ?? 'free';
+  const bonusQuota = me?.tg_bonus_quota ?? 0;
+  const expiresAt = me?.sub_expires_at ?? null;
 
-    try {
-      const status = await startStarsPayment(plan);
-
-      if (status === 'paid') {
-        notificationHaptic('success');
-        await refresh();
-        setToast({ kind: 'success', text: 'Подписка активирована' });
-        setTimeout(() => {
-          closeAndBack();
-        }, 1200);
-      } else if (status === 'pending') {
-        notificationHaptic('warning');
-        setToast({ kind: 'success', text: 'Платёж в обработке. Проверь подписку через минуту.' });
-      } else if (status === 'cancelled') {
-        // тихо — пользователь сам отменил
-      } else {
-        notificationHaptic('error');
-        setToast({
-          kind: 'error',
-          text: tgAvailable
-            ? 'Не удалось оплатить. Попробуй ещё раз.'
-            : 'Покупка работает только в Telegram. Открой мини-приложение в TG.',
-        });
-      }
-    } catch (err: any) {
-      notificationHaptic('error');
-      setToast({ kind: 'error', text: err?.message || 'Ошибка оплаты' });
-    } finally {
-      setBusyPlan(null);
-    }
-  }, [busyPlan, refresh, closeAndBack, tgAvailable]);
-
-  // ── ЮКасса (Phase I) ───────────────────────────────────────────────────────
-  // 1. Запрашиваем confirmation_url у бэка.
-  // 2. Открываем в TG WebView (или window.open вне TG).
-  // 3. Polling /users/me каждые 3с × 10 — ждём пока webhook ЮКассы активирует
-  //    подписку. Если за 30 сек тир не сменился — пишем "проверь позже".
   const handlePayCard = useCallback(async (plan: StarsPlan) => {
     if (busyPlan) return;
     impactHaptic('medium');
@@ -186,8 +149,13 @@ export function PaywallScreen() {
     try {
       const res = await createYookassaInvoice(plan);
       if (!res.ok || !res.confirmation_url) {
+        // Бэк может вернуть 503 если YK_SHOP_ID/YK_SECRET_KEY не заданы.
         notificationHaptic('error');
-        setToast({ kind: 'error', text: res.error || 'Не удалось создать платёж' });
+        setPaymentsUnavailable(true);
+        setToast({
+          kind: 'error',
+          text: res.error || 'Платежи временно недоступны. Попробуй позже.',
+        });
         setBusyPlan(null);
         return;
       }
@@ -198,25 +166,36 @@ export function PaywallScreen() {
       } else {
         window.open(res.confirmation_url, '_blank');
       }
-      // Polling — ждём пока вебхук активирует подписку
-      setToast({ kind: 'success', text: 'Открываем оплату… После оплаты подписка активируется автоматически.' });
+      setToast({ kind: 'info', text: 'Открываем оплату… После оплаты статус обновится автоматически.' });
+      // Polling — ждём пока вебхук активирует подписку или начислит запросы
+      const initialTier = me?.tier ?? 'free';
+      const initialBonus = me?.tg_bonus_quota ?? 0;
       for (let i = 0; i < 10; i++) {
         await new Promise(r => setTimeout(r, 3000));
         try {
           const meRes = await getMe();
-          if (meRes?.user?.tier && meRes.user.tier !== 'free') {
+          const user = meRes?.user;
+          if (!user) continue;
+          const tierChanged = user.tier && user.tier !== initialTier && user.tier !== 'free';
+          const bonusGrew = (user.tg_bonus_quota ?? 0) > initialBonus;
+          if (tierChanged || bonusGrew) {
             notificationHaptic('success');
             await refresh();
-            setToast({ kind: 'success', text: 'Подписка активирована' });
-            setTimeout(() => closeAndBack(), 1200);
+            setToast({
+              kind: 'success',
+              text: plan === 'day_pass'
+                ? `Зачислено +${DAY_PASS_BONUS} запросов`
+                : 'Подписка активирована',
+            });
+            setTimeout(() => closeAndBack(), 1400);
             return;
           }
         } catch (_) { /* продолжаем polling */ }
       }
       // Не дождались — оставляем экран открытым с подсказкой
       setToast({
-        kind: 'success',
-        text: 'Платёж в обработке. Если ты завершил оплату — обнови экран через минуту.',
+        kind: 'info',
+        text: 'Платёж в обработке. Если оплата завершена — обнови экран через минуту.',
       });
     } catch (err: any) {
       notificationHaptic('error');
@@ -224,7 +203,7 @@ export function PaywallScreen() {
     } finally {
       setBusyPlan(null);
     }
-  }, [busyPlan, refresh, closeAndBack]);
+  }, [busyPlan, me, refresh, closeAndBack]);
 
   return (
     <div style={styles.container}>
@@ -244,58 +223,50 @@ export function PaywallScreen() {
       {/* Hero */}
       <div style={styles.hero}>
         <div style={styles.heroIcon}>
-          <svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="#fff"
-               strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-          </svg>
+          <span style={{ fontSize: 30, lineHeight: 1 }}>💘</span>
         </div>
         <h1 style={styles.heroTitle}>{heading}</h1>
         <p style={styles.heroSub}>{subheading}</p>
+        {bonusQuota > 0 && (
+          <div style={styles.bonusBadge}>
+            <span>У тебя ещё +{bonusQuota} запасных {pluralRequests(bonusQuota)}</span>
+          </div>
+        )}
       </div>
 
-      {/* Информация что в DEV/вне TG оплаты нет */}
-      {!tgAvailable && (
+      {paymentsUnavailable && (
         <div style={styles.warnBox}>
-          Покупка Stars работает только в реальном Telegram. В обычном браузере экран показывается,
-          но оплата недоступна.
+          Платежи временно недоступны. Попробуй позже или напиши в поддержку.
         </div>
       )}
 
-      {/* План карточки */}
+      {/* Subscription plans */}
       <div style={styles.plans}>
-        {PLAN_CONFIGS.map(plan => (
+        {SUBSCRIPTION_PLANS.map(plan => (
           <PlanCard
             key={plan.id}
             cfg={plan}
-            selected={selected === plan.id}
-            onSelect={() => { impactHaptic('light'); setSelected(plan.id); }}
-            onBuy={() => handleBuy(plan.id)}
-            onBuyCard={YOOKASSA_ENABLED ? () => handlePayCard(plan.id) : undefined}
+            price={RUB_PRICES[plan.id]}
+            isCurrent={tier === plan.id}
+            expiresAt={tier === plan.id ? expiresAt : null}
             busy={busyPlan === plan.id}
             disabled={busyPlan != null && busyPlan !== plan.id}
+            onBuy={() => handlePayCard(plan.id)}
           />
         ))}
+      </div>
 
-        {hasActiveSub && (
-          <PlanCard
-            cfg={{
-              id: 'day_pass',
-              title: 'Дневной пропуск',
-              price: 50,
-              badge: '24 часа',
-              features: [
-                'Без лимитов на 24 часа',
-                'Действует поверх текущего тарифа',
-              ],
-            }}
-            selected={selected === 'day_pass'}
-            onSelect={() => { impactHaptic('light'); setSelected('day_pass'); }}
-            onBuy={() => handleBuy('day_pass')}
-            onBuyCard={YOOKASSA_ENABLED ? () => handlePayCard('day_pass') : undefined}
-            busy={busyPlan === 'day_pass'}
-            disabled={busyPlan != null && busyPlan !== 'day_pass'}
-          />
-        )}
+      {/* Day Pass — отдельная секция */}
+      <h2 style={styles.sectionTitle}>Докупить запросы</h2>
+      <div style={styles.plans}>
+        <DayPassCard
+          cfg={DAY_PASS_PLAN}
+          price={RUB_PRICES.day_pass}
+          currentBonus={bonusQuota}
+          busy={busyPlan === 'day_pass'}
+          disabled={busyPlan != null && busyPlan !== 'day_pass'}
+          onBuy={() => handlePayCard('day_pass')}
+        />
       </div>
 
       {/* Доп. CTA — промо/реферал */}
@@ -310,14 +281,20 @@ export function PaywallScreen() {
       </div>
 
       <p style={styles.legal}>
-        Оплата через Telegram Stars. Подписка действует 30 дней без автопродления.
-        Чтобы вернуть Stars — напиши команду /paysupport в бот.
+        Оплата картой через ЮКассу. Подписка действует 30 дней без автопродления.
+        Возврат — напиши в поддержку через профиль.
       </p>
 
       {toast && (
         <div style={{
           ...styles.toast,
-          background: toast.kind === 'success' ? 'var(--status-positive)' : 'var(--status-negative)',
+          background: toast.kind === 'success'
+            ? 'var(--status-positive)'
+            : toast.kind === 'error'
+              ? 'var(--status-negative)'
+              : 'var(--bg-elevated)',
+          color: toast.kind === 'info' ? 'var(--text-primary)' : '#fff',
+          border: toast.kind === 'info' ? '1px solid var(--border-default)' : 'none',
         }}>
           {toast.text}
         </div>
@@ -326,97 +303,187 @@ export function PaywallScreen() {
   );
 }
 
-// ── Карточка тарифа ──────────────────────────────────────────────────────────
+// ── Карточка тарифа (Basic / Premium) ────────────────────────────────────────
 
 interface PlanCardProps {
   cfg: PlanConfig;
-  selected: boolean;
-  onSelect: () => void;
-  onBuy: () => void;
-  onBuyCard?: () => void; // если задан — показываем вторую кнопку «Купить картой»
+  price: number;
+  isCurrent: boolean;
+  expiresAt: string | null;
   busy: boolean;
   disabled: boolean;
+  onBuy: () => void;
 }
 
-function PlanCard({ cfg, selected, onSelect, onBuy, onBuyCard, busy, disabled }: PlanCardProps) {
-  // Рублёвая стоимость рядом со Stars — для прозрачности (~1.4 ₽/⭐).
-  // Для day_pass и других — используем RUB_PRICES если есть, иначе считаем из курса.
-  const rubFromPrices = RUB_PRICES[cfg.id];
-  const rubApprox = rubFromPrices ?? Math.round(cfg.price * STARS_TO_RUB);
-
+function PlanCard({ cfg, price, isCurrent, expiresAt, busy, disabled, onBuy }: PlanCardProps) {
   return (
-    <div
-      onClick={onSelect}
-      style={{
-        ...styles.card,
-        background: cfg.highlight ? 'var(--accent-soft)' : 'var(--bg-card)',
-        borderColor: selected
-          ? 'var(--accent-primary)'
-          : cfg.highlight
-            ? 'var(--border-accent)'
-            : 'var(--border-subtle)',
-        boxShadow: selected ? 'var(--glow-accent)' : undefined,
-      }}
-    >
-      <div style={styles.cardHead}>
-        <div>
-          <span style={styles.planTitle}>{cfg.title}</span>
-          {cfg.badge && (
-            <span style={{
-              ...styles.badge,
-              background: cfg.badgeAccent ? 'var(--gradient-accent)' : 'var(--bg-elevated)',
-              color: cfg.badgeAccent ? '#fff' : 'var(--text-secondary)',
-            }}>{cfg.badge}</span>
-          )}
-        </div>
-        <div style={styles.priceCol}>
-          <div style={styles.priceWrap}>
-            <span style={styles.priceNum}>{cfg.price}</span>
-            <span style={styles.priceUnit}>⭐</span>
-          </div>
-          <span style={styles.priceRub}>≈ {rubApprox} ₽</span>
-        </div>
+    <div style={{
+      ...styles.card,
+      border: cfg.highlight
+        ? '2px solid var(--accent-primary)'
+        : '1.5px solid var(--border-subtle)',
+      background: cfg.highlight ? 'var(--accent-soft)' : 'var(--bg-card)',
+      boxShadow: cfg.highlight ? 'var(--glow-accent)' : undefined,
+      position: 'relative',
+    }}>
+      {cfg.badge && (
+        <div style={styles.popularBadge}>⭐ {cfg.badge}</div>
+      )}
+
+      <div style={styles.planHead}>
+        <span style={styles.planTitle}>{cfg.title}</span>
       </div>
 
-      <ul style={styles.features}>
-        {cfg.features.map(f => (
-          <li key={f} style={styles.feature}>
-            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--status-positive)"
-                 strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20,6 9,17 4,12" />
-            </svg>
-            <span>{f}</span>
-          </li>
-        ))}
-      </ul>
+      <div style={styles.priceRow}>
+        <span style={styles.priceBig}>{price} ₽</span>
+        <span style={styles.priceSub}>{cfg.subtitle}</span>
+      </div>
 
-      <button
-        onClick={(e) => { e.stopPropagation(); if (!busy && !disabled) onBuy(); }}
-        disabled={busy || disabled}
-        style={{
-          ...styles.buyBtn,
-          background: cfg.highlight ? 'var(--gradient-accent)' : 'var(--bg-elevated)',
-          color: cfg.highlight ? '#fff' : 'var(--text-primary)',
-          opacity: (busy || disabled) ? 0.6 : 1,
-        }}
-      >
-        {busy ? 'Открываем оплату…' : `Купить за ${cfg.price} ⭐`}
-      </button>
+      <FeatureList items={cfg.features} />
 
-      {onBuyCard && (
-        <button
-          onClick={(e) => { e.stopPropagation(); if (!busy && !disabled) onBuyCard(); }}
-          disabled={busy || disabled}
-          style={{
-            ...styles.buyCardBtn,
-            opacity: (busy || disabled) ? 0.6 : 1,
-          }}
-        >
-          Купить за {rubApprox} ₽ картой
-        </button>
+      {isCurrent ? (
+        <div style={styles.activeBadge}>
+          <CheckSvg color="#fff" />
+          <span>Активен{expiresAt ? ` до ${formatDate(expiresAt)}` : ''}</span>
+        </div>
+      ) : (
+        <BuyButton
+          highlight={!!cfg.highlight}
+          busy={busy}
+          disabled={disabled}
+          onClick={onBuy}
+          label={busy ? 'Открываем оплату…' : `Купить за ${price} ₽`}
+        />
       )}
     </div>
   );
+}
+
+// ── Day Pass card — нейтральный стиль, отдельная секция ──────────────────────
+
+interface DayPassCardProps {
+  cfg: PlanConfig;
+  price: number;
+  currentBonus: number;
+  busy: boolean;
+  disabled: boolean;
+  onBuy: () => void;
+}
+
+function DayPassCard({ cfg, price, currentBonus, busy, disabled, onBuy }: DayPassCardProps) {
+  return (
+    <div style={{
+      ...styles.card,
+      border: '1.5px solid var(--border-default)',
+      background: 'var(--bg-card)',
+    }}>
+      <div style={styles.planHead}>
+        <span style={styles.planTitle}>{cfg.title}</span>
+      </div>
+
+      <div style={styles.priceRow}>
+        <span style={styles.priceBig}>{price} ₽</span>
+        <span style={styles.priceSub}>{cfg.subtitle}</span>
+      </div>
+
+      <FeatureList items={cfg.features} />
+
+      {currentBonus > 0 && (
+        <div style={styles.bonusHint}>
+          У тебя сейчас +{currentBonus} запасных {pluralRequests(currentBonus)}
+        </div>
+      )}
+
+      <BuyButton
+        highlight={false}
+        busy={busy}
+        disabled={disabled}
+        onClick={onBuy}
+        label={busy ? 'Открываем оплату…' : `Купить за ${price} ₽`}
+      />
+    </div>
+  );
+}
+
+// ── Sub-components ───────────────────────────────────────────────────────────
+
+function FeatureList({ items }: { items: string[] }) {
+  return (
+    <ul style={styles.features}>
+      {items.map(f => (
+        <li key={f} style={styles.feature}>
+          <span style={styles.featureCheck}><CheckSvg /></span>
+          <span>{f}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CheckSvg({ color = 'var(--status-positive)' }: { color?: string }) {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={color}
+         strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20,6 9,17 4,12" />
+    </svg>
+  );
+}
+
+interface BuyButtonProps {
+  highlight: boolean;
+  busy: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  label: ReactNode;
+}
+
+function BuyButton({ highlight, busy, disabled, onClick, label }: BuyButtonProps) {
+  const isDisabled = busy || disabled;
+  return (
+    <button
+      onClick={() => { if (!isDisabled) onClick(); }}
+      disabled={isDisabled}
+      style={{
+        marginTop: 16,
+        width: '100%',
+        padding: '14px 16px',
+        borderRadius: 12,
+        fontSize: 15,
+        fontWeight: 700,
+        border: highlight ? 'none' : '1px solid var(--border-default)',
+        background: highlight ? 'var(--gradient-accent)' : 'var(--bg-elevated)',
+        color: highlight ? '#fff' : 'var(--text-primary)',
+        cursor: isDisabled ? 'default' : 'pointer',
+        opacity: isDisabled ? 0.6 : 1,
+        transition: 'opacity 160ms, transform 80ms',
+        boxShadow: highlight ? 'var(--glow-accent)' : 'none',
+      }}
+      onPointerDown={(e) => { if (!isDisabled) (e.currentTarget.style.transform = 'scale(0.98)'); }}
+      onPointerUp={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+      onPointerLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+    >
+      {label}
+    </button>
+  );
+}
+
+// ── Утилиты ──────────────────────────────────────────────────────────────────
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}.${mm}.${yyyy}`;
+}
+
+function pluralRequests(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'запрос';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'запроса';
+  return 'запросов';
 }
 
 // ── Стили ────────────────────────────────────────────────────────────────────
@@ -440,11 +507,12 @@ const styles: Record<string, CSSProperties> = {
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border-subtle)',
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer',
   },
   headerTitle: { fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' },
 
   hero: {
-    padding: '20px 20px 24px',
+    padding: '16px 20px 24px',
     textAlign: 'center',
   },
   heroIcon: {
@@ -456,88 +524,142 @@ const styles: Record<string, CSSProperties> = {
   },
   heroTitle: {
     margin: 0,
-    fontSize: 24, fontWeight: 700, color: 'var(--text-primary)',
+    fontSize: 24, fontWeight: 800, color: 'var(--text-primary)',
+    lineHeight: 1.2,
   },
   heroSub: {
-    margin: '8px auto 0',
+    margin: '10px auto 0',
     maxWidth: 320,
     fontSize: 14, lineHeight: '20px',
     color: 'var(--text-secondary)',
   },
+  bonusBadge: {
+    display: 'inline-flex',
+    margin: '14px auto 0',
+    padding: '6px 12px',
+    fontSize: 12, fontWeight: 600,
+    color: 'var(--status-positive)',
+    background: 'rgba(34, 197, 94, 0.10)',
+    border: '1px solid rgba(34, 197, 94, 0.30)',
+    borderRadius: 10,
+  },
 
   warnBox: {
     margin: '0 20px 16px',
-    padding: '10px 12px',
-    fontSize: 12, lineHeight: '18px',
+    padding: '12px 14px',
+    fontSize: 13, lineHeight: '18px',
     background: 'rgba(245,158,11,0.10)',
     border: '1px solid rgba(245,158,11,0.30)',
-    color: 'var(--status-warning)',
+    color: 'var(--status-warning, #F59E0B)',
     borderRadius: 12,
+    textAlign: 'center',
+  },
+
+  sectionTitle: {
+    margin: '28px 20px 12px',
+    fontSize: 13, fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    color: 'var(--text-muted)',
   },
 
   plans: {
-    padding: '0 16px',
-    display: 'flex', flexDirection: 'column', gap: 12,
+    padding: '0 20px',
+    display: 'flex', flexDirection: 'column', gap: 16,
   },
 
   card: {
-    border: '1.5px solid',
     borderRadius: 18,
-    padding: 16,
-    cursor: 'pointer',
+    padding: '18px 18px 18px',
     transition: 'border-color 160ms, box-shadow 160ms',
   },
-  cardHead: {
-    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-    marginBottom: 12,
+  popularBadge: {
+    position: 'absolute',
+    top: -10,
+    right: 16,
+    padding: '4px 10px',
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+    color: '#fff',
+    background: 'var(--gradient-accent)',
+    borderRadius: 8,
+    boxShadow: 'var(--glow-accent)',
   },
-  planTitle: { fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' },
-  badge: {
-    display: 'inline-block',
-    marginLeft: 8,
-    padding: '3px 8px',
-    fontSize: 11, fontWeight: 600, letterSpacing: 0.3,
-    borderRadius: 6,
-    verticalAlign: 'middle',
-  },
-  priceCol:  { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 },
-  priceWrap: { display: 'inline-flex', alignItems: 'baseline', gap: 2 },
-  priceNum:  { fontSize: 24, fontWeight: 800, color: 'var(--text-primary)' },
-  priceUnit: { fontSize: 18, color: 'var(--coin)' },
-  priceRub:  { fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 },
 
-  features: { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 },
+  planHead: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  planTitle: {
+    fontSize: 18,
+    fontWeight: 800,
+    color: 'var(--text-primary)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+
+  priceRow: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 6,
+    marginBottom: 14,
+  },
+  priceBig: {
+    fontSize: 32,
+    fontWeight: 800,
+    color: 'var(--text-primary)',
+    lineHeight: 1,
+  },
+  priceSub: {
+    fontSize: 13,
+    fontWeight: 500,
+    color: 'var(--text-muted)',
+  },
+
+  features: {
+    listStyle: 'none', margin: 0, padding: 0,
+    display: 'flex', flexDirection: 'column', gap: 8,
+  },
   feature: {
-    display: 'flex', alignItems: 'flex-start', gap: 8,
-    fontSize: 13, lineHeight: '18px', color: 'var(--text-secondary)',
+    display: 'flex', alignItems: 'flex-start', gap: 10,
+    fontSize: 14, lineHeight: '20px', color: 'var(--text-secondary)',
+  },
+  featureCheck: {
+    display: 'inline-flex',
+    flex: '0 0 16px',
+    paddingTop: 2,
   },
 
-  buyBtn: {
-    marginTop: 14,
+  activeBadge: {
+    marginTop: 16,
     width: '100%',
-    padding: '12px 16px',
+    padding: '13px 16px',
     borderRadius: 12,
-    fontSize: 15, fontWeight: 600,
-    border: 'none',
-    cursor: 'pointer',
-    transition: 'opacity 160ms',
+    background: 'var(--status-positive)',
+    color: '#fff',
+    fontSize: 14, fontWeight: 700,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
 
-  buyCardBtn: {
-    marginTop: 8,
-    width: '100%',
-    padding: '11px 16px',
-    borderRadius: 12,
-    fontSize: 14, fontWeight: 600,
-    background: 'transparent',
+  bonusHint: {
+    marginTop: 12,
+    padding: '8px 12px',
+    background: 'var(--bg-elevated)',
+    border: '1px dashed var(--border-default)',
+    borderRadius: 10,
+    fontSize: 12,
     color: 'var(--text-secondary)',
-    border: '1px solid var(--border-default)',
-    cursor: 'pointer',
-    transition: 'opacity 160ms',
+    textAlign: 'center',
   },
 
   extra: {
-    marginTop: 20,
+    marginTop: 24,
     padding: '0 20px',
     textAlign: 'center',
     fontSize: 13,
@@ -545,9 +667,11 @@ const styles: Record<string, CSSProperties> = {
   },
   linkBtn: {
     background: 'none',
+    border: 'none',
     color: 'var(--text-accent)',
     fontSize: 13, fontWeight: 500,
     padding: 4,
+    cursor: 'pointer',
   },
   dot: { margin: '0 6px', color: 'var(--text-muted)' },
 
@@ -563,7 +687,6 @@ const styles: Record<string, CSSProperties> = {
     bottom: 'calc(var(--safe-bottom) + 16px)',
     padding: '12px 16px',
     borderRadius: 12,
-    color: '#fff',
     fontSize: 14, fontWeight: 600,
     textAlign: 'center',
     zIndex: 100,

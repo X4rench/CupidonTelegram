@@ -19,8 +19,11 @@ import db from '../db/index.js';
 const PLAN_DURATION_DAYS = {
   basic:    30,
   premium:  30,
-  day_pass: 1,
+  // day_pass — НЕ создаёт subscription (новая концепция: +N запросов к bonus_quota)
+  day_pass: 0,
 };
+
+const DAY_PASS_BONUS_QUOTA = parseInt(process.env.DAY_PASS_BONUS_QUOTA, 10) || 100;
 
 let timer = null;
 
@@ -61,7 +64,7 @@ async function reconcileOnePayment(record, auth) {
   const metadata = yk.metadata || {};
   const plan = metadata.plan;
   const tgUserId = parseInt(metadata.tg_user_id, 10);
-  if (!plan || !PLAN_DURATION_DAYS[plan] || !tgUserId) {
+  if (!plan || !(plan in PLAN_DURATION_DAYS) || !tgUserId) {
     console.error('[reconcile] bad metadata in succeeded payment', { chargeId, metadata });
     return;
   }
@@ -74,6 +77,31 @@ async function reconcileOnePayment(record, auth) {
 
   const amountMinor = Math.round(parseFloat(yk.amount?.value || '0') * 100);
   const currency = yk.amount?.currency || 'RUB';
+  const rawJson = JSON.stringify(yk).slice(0, 8000);
+
+  if (plan === 'day_pass') {
+    // НОВАЯ концепция day_pass — +N запросов к bonus_quota, без subscription
+    db.transaction(() => {
+      db.run(
+        `UPDATE payments
+           SET status = 'succeeded',
+               processed_at = datetime('now'),
+               amount_minor = ?,
+               currency = ?,
+               raw = ?
+         WHERE charge_id = ?`,
+        amountMinor, currency, rawJson, chargeId
+      );
+      db.run(
+        `UPDATE users
+           SET tg_bonus_quota = COALESCE(tg_bonus_quota, 0) + ?
+         WHERE telegram_user_id = ?`,
+        DAY_PASS_BONUS_QUOTA, tgUserId
+      );
+    })();
+    console.log(`[reconcile] day_pass +${DAY_PASS_BONUS_QUOTA} quota: tg_user=${tgUserId} charge=${chargeId}`);
+    return;
+  }
 
   db.transaction(() => {
     db.run(
@@ -84,7 +112,7 @@ async function reconcileOnePayment(record, auth) {
              currency = ?,
              raw = ?
        WHERE charge_id = ?`,
-      amountMinor, currency, JSON.stringify(yk).slice(0, 8000), chargeId
+      amountMinor, currency, rawJson, chargeId
     );
 
     const days = PLAN_DURATION_DAYS[plan];

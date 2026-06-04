@@ -34,8 +34,11 @@ const WEB_APP_URL    = process.env.PUBLIC_BASE_URL || 'https://cupidonai.ru';
 const PLAN_DURATION_DAYS = {
   basic:    30,
   premium:  30,
-  day_pass: 1,
+  // day_pass — НЕ создаёт subscription (новая концепция: +N запросов к bonus_quota)
+  day_pass: 0,
 };
+
+const DAY_PASS_BONUS_QUOTA = parseInt(process.env.DAY_PASS_BONUS_QUOTA, 10) || 100;
 
 /**
  * Constant-time проверка секрета X-Telegram-Bot-Api-Secret-Token.
@@ -173,7 +176,7 @@ async function handlePreCheckout(query) {
   catch (_) { payload = null; }
 
   // Валидация: plan известен, tg_user_id совпадает с from.id
-  const validPlan  = payload && PLAN_DURATION_DAYS[payload.plan];
+  const validPlan  = payload && (payload.plan in PLAN_DURATION_DAYS);
   const validUser  = payload && payload.tg_user_id === query.from?.id;
 
   if (!validPlan || !validUser) {
@@ -204,7 +207,7 @@ async function handleSuccessfulPayment(msg) {
   catch (_) { payload = null; }
 
   const plan = payload?.plan;
-  if (!plan || !PLAN_DURATION_DAYS[plan]) {
+  if (!plan || !(plan in PLAN_DURATION_DAYS)) {
     console.error('[telegram] successful_payment with unknown plan in payload', { chargeId, payload });
     return;
   }
@@ -227,7 +230,23 @@ async function handleSuccessfulPayment(msg) {
       return;
     }
 
-    // 2. Создать/продлить subscription
+    if (plan === 'day_pass') {
+      // НОВАЯ концепция day_pass — +N запросов к bonus_quota, без subscription
+      db.run(
+        `UPDATE users
+           SET tg_bonus_quota = COALESCE(tg_bonus_quota, 0) + ?
+         WHERE telegram_user_id = ?`,
+        DAY_PASS_BONUS_QUOTA, tgUserId
+      );
+      db.run(
+        `UPDATE payments SET status = 'succeeded', processed_at = datetime('now') WHERE charge_id = ?`,
+        chargeId
+      );
+      console.log(`[telegram] day_pass +${DAY_PASS_BONUS_QUOTA} quota: tg_user=${tgUserId} amount=${sp.total_amount} XTR charge=${chargeId}`);
+      return;
+    }
+
+    // 2. Создать/продлить subscription (basic/premium)
     const days = PLAN_DURATION_DAYS[plan];
     const existing = db.get(
       `SELECT expires_at FROM subscriptions
@@ -265,9 +284,11 @@ async function handleSuccessfulPayment(msg) {
 
   // Best-effort thank-you message (failure не критична — подписка уже есть в БД)
   try {
-    const planLabel = plan === 'premium' ? 'Premium' : plan === 'day_pass' ? 'дневной пропуск' : 'Basic';
+    const successText = plan === 'day_pass'
+      ? `Оплата прошла. Спасибо!\n\nНа баланс добавлено +${DAY_PASS_BONUS_QUOTA} запросов. Они не сгорают и тратятся по 1 за запрос.`
+      : `Оплата прошла. Спасибо!\n\nТвой ${plan === 'premium' ? 'Premium' : 'Basic'} активирован. Возвращайся в Mini App.`;
     await sendMessage(tgUserId,
-      `Оплата прошла. Спасибо!\n\nТвой ${planLabel} активирован. Возвращайся в Mini App.`,
+      successText,
       {
         reply_markup: {
           inline_keyboard: [[

@@ -146,6 +146,14 @@ export function ProfileScreen() {
                   {isFree ? 'Бесплатный тариф' : `${tierLabel} активна${formatExpiresShort(me?.sub_expires_at) ? ` до ${formatExpiresShort(me?.sub_expires_at)}` : ''}`}
                 </span>
               </div>
+              {(me?.tg_bonus_quota ?? 0) > 0 && (
+                <div style={{
+                  marginTop: 6, fontSize: 12, fontWeight: 600,
+                  color: 'var(--status-positive)',
+                }}>
+                  +{me?.tg_bonus_quota} запасных запросов
+                </div>
+              )}
             </div>
             {isFree && <span style={styles.noPlanBadge}>{tierLabel}</span>}
           </div>

@@ -26,8 +26,15 @@ const YK_WEBHOOK_SECRET = process.env.YK_WEBHOOK_SECRET;
 const PLAN_DURATION_DAYS = {
   basic:    30,
   premium:  30,
-  day_pass: 1,
+  // day_pass — НЕ создаёт subscription, см. handlePaymentSucceeded.
+  // Оставлен в map чтобы plan-валидация не отвергала day_pass-webhook'и.
+  day_pass: 0,
 };
+
+// Day Pass — пополнение запасной квоты на +N запросов (новая концепция).
+// См. routes/yookassa.js, routes/telegram.js, utils/reconcile.js — все три места
+// должны быть синхронизированы.
+const DAY_PASS_BONUS_QUOTA = parseInt(process.env.DAY_PASS_BONUS_QUOTA, 10) || 100;
 
 /**
  * Опциональная constant-time проверка секрета.
@@ -107,7 +114,7 @@ async function handlePaymentSucceeded(payment) {
   const plan = metadata.plan;
   const tgUserId = parseInt(metadata.tg_user_id, 10);
 
-  if (!plan || !PLAN_DURATION_DAYS[plan]) {
+  if (!plan || !(plan in PLAN_DURATION_DAYS)) {
     console.error('[yookassa] payment.succeeded with unknown plan', { chargeId, plan });
     return;
   }
@@ -125,7 +132,51 @@ async function handlePaymentSucceeded(payment) {
 
   const amountMinor = Math.round(parseFloat(payment.amount?.value || '0') * 100);
   const currency = payment.amount?.currency || 'RUB';
+  const rawJson = JSON.stringify(payment).slice(0, 8000);
 
+  if (plan === 'day_pass') {
+    // ── НОВАЯ концепция day_pass — +N запросов к tg_bonus_quota ────────────
+    // Никакой subscription/tier-change. Просто пополнение bonus quota,
+    // которая тратится по 1 за запрос через tryConsumeBonus в utils/limits.js.
+    db.transaction(() => {
+      if (existing) {
+        db.run(
+          `UPDATE payments
+             SET status = 'succeeded',
+                 processed_at = datetime('now'),
+                 amount_minor = ?,
+                 currency = ?,
+                 raw = ?
+           WHERE charge_id = ?`,
+          amountMinor, currency, rawJson, chargeId
+        );
+      } else {
+        const ins = db.run(
+          `INSERT OR IGNORE INTO payments
+             (telegram_user_id, charge_id, provider, plan, amount_minor, currency, status, processed_at, raw)
+           VALUES (?, ?, 'yookassa', ?, ?, ?, 'succeeded', datetime('now'), ?)`,
+          tgUserId, chargeId, plan, amountMinor, currency, rawJson
+        );
+        if (ins.changes === 0) {
+          // Race: другой инстанс webhook'а только что вставил — выходим
+          console.log(`[yookassa] day_pass duplicate (race) for ${chargeId} — skip`);
+          return;
+        }
+      }
+
+      db.run(
+        `UPDATE users
+           SET tg_bonus_quota = COALESCE(tg_bonus_quota, 0) + ?
+         WHERE telegram_user_id = ?`,
+        DAY_PASS_BONUS_QUOTA, tgUserId
+      );
+    })();
+
+    console.log(`[yookassa] day_pass +${DAY_PASS_BONUS_QUOTA} quota: tg_user=${tgUserId} amount=${amountMinor/100} ${currency} charge=${chargeId}`);
+    return;
+  }
+
+  // ── СТАРАЯ логика basic/premium — создаём/продлеваем subscription ────────
   db.transaction(() => {
     // 1. Upsert payment record (могли создать pending при /yookassa/invoice;
     //    либо webhook пришёл раньше нашего ответа — тогда создаём с нуля)
@@ -138,14 +189,14 @@ async function handlePaymentSucceeded(payment) {
                currency = ?,
                raw = ?
          WHERE charge_id = ?`,
-        amountMinor, currency, JSON.stringify(payment).slice(0, 8000), chargeId
+        amountMinor, currency, rawJson, chargeId
       );
     } else {
       db.run(
         `INSERT INTO payments
            (telegram_user_id, charge_id, provider, plan, amount_minor, currency, status, processed_at, raw)
          VALUES (?, ?, 'yookassa', ?, ?, ?, 'succeeded', datetime('now'), ?)`,
-        tgUserId, chargeId, plan, amountMinor, currency, JSON.stringify(payment).slice(0, 8000)
+        tgUserId, chargeId, plan, amountMinor, currency, rawJson
       );
     }
 

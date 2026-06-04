@@ -130,6 +130,7 @@ export interface MeUser {
   requests_count?: number;
   simulations_count?: number;
   tg_bonus_claimed?: boolean;
+  tg_bonus_quota?: number;
   is_admin?: boolean;
   created_at?: string;
 }
