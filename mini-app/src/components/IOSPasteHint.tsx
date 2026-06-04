@@ -1,117 +1,74 @@
 // ═══════════════════════════════════════════════════════════════
-// IOSPasteHint — подсказка под textarea для iOS-пользователей.
+// IOSPasteHint — компактная свёрнутая ссылка под textarea для
+// iOS-пользователей. По умолчанию — только маленький текст-ссылка,
+// тап → раскрывается с лайфхаком через Избранное.
 //
-// На iOS Apple WKWebView блокирует multi-line paste при копировании
-// нескольких отдельных сообщений из TG-чата. НО — если переписка
-// сложена в ОДНО сообщение (например, в Избранном), то её копирование
-// и вставка работает нормально: Apple режет только cross-source paste,
-// а одно TG-сообщение это «один source».
+// Логика показа:
+//   - НЕ iOS → null (Android/Desktop вообще ничего не видят)
+//   - iOS, свёрнуто → одна строка-toggler «Не вставилась вся переписка?»
+//   - iOS, развёрнуто → пошаговый лайфхак
 //
-// Поэтому даём пользователю конкретный лайфхак: вставить переписку
-// в Избранное (Saved Messages) → получить одно длинное сообщение →
-// скопировать его → вставить в Купидон.
+// Apple WKWebView блокирует paste нескольких TG-сообщений сразу, но
+// ОДНО TG-сообщение (даже multi-line) копируется без проблем.
+// Поэтому юзер пересылает переписку в Избранное → получает одно
+// сообщение → копирует его → вставляет в Купидон.
 // ═══════════════════════════════════════════════════════════════
 import { useState, type CSSProperties } from 'react';
 import { isTelegramIOS } from './AutoGrowTextarea';
 import { selectionHaptic } from '../utils/haptics';
 
 export function IOSPasteHint() {
-  const [step, setStep] = useState<'lifehack' | 'other' | null>('lifehack');
+  const [open, setOpen] = useState(false);
   if (!isTelegramIOS()) return null;
+
+  const toggle = () => { selectionHaptic(); setOpen(v => !v); };
 
   const openSaved = () => {
     selectionHaptic();
     const tg: any = (window as any)?.Telegram?.WebApp;
-    // Открываем «Избранное» (Saved Messages) — это чат с самим собой
     if (tg?.openTelegramLink) {
       try { tg.openTelegramLink('https://t.me/+42777'); return; } catch (_) {}
-      try { tg.openTelegramLink('tg://resolve?domain=Saved+Messages'); return; } catch (_) {}
     }
-    // Fallback — пусть TG сам обработает
     window.open('https://t.me/+42777', '_blank');
   };
 
   return (
     <div style={styles.wrap}>
-      <div style={styles.title}>
-        <span style={styles.icon}>📱</span>
-        <span>Лайфхак для iPhone</span>
-      </div>
+      <button type="button" onClick={toggle} style={styles.toggler}>
+        <span style={styles.togglerIcon}>ⓘ</span>
+        <span>Не вставилась вся переписка?</span>
+        <span style={{
+          ...styles.chevron,
+          transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+        }}>›</span>
+      </button>
 
-      <div style={styles.body}>
-        Если ты выделишь и скопируешь сразу несколько сообщений из
-        чата — iPhone вставит только <b>первое</b>. Это блок Apple,
-        мы его не обойдём из приложения. Но есть способы.
-      </div>
+      {open && (
+        <div style={styles.panel}>
+          <div style={styles.panelHead}>
+            iPhone Apple позволяет вставить только <b>первое</b>
+            сообщение из чата. Самый быстрый обход:
+          </div>
 
-      <div style={styles.tabs}>
-        <button
-          type="button"
-          onClick={() => setStep('lifehack')}
-          style={{
-            ...styles.tabBtn,
-            ...(step === 'lifehack' ? styles.tabBtnActive : {}),
-          }}
-        >
-          🪄 Лайфхак за 10 секунд
-        </button>
-        <button
-          type="button"
-          onClick={() => setStep('other')}
-          style={{
-            ...styles.tabBtn,
-            ...(step === 'other' ? styles.tabBtnActive : {}),
-          }}
-        >
-          Другие способы
-        </button>
-      </div>
-
-      {step === 'lifehack' && (
-        <div style={styles.steps}>
           <Step n={1}>
-            В Telegram-чате <b>выдели</b> сообщения с перепиской
-            (зажми любое сообщение → выдели остальные галочками).
+            В чате <b>выдели</b> переписку (зажми сообщение → выдели
+            остальные галочками) → <b>«Копировать»</b>
           </Step>
           <Step n={2}>
-            Нажми <b>«Копировать»</b> (иконка скрепки внизу).
-          </Step>
-          <Step n={3}>
-            Открой <b>Избранное</b> — это чат с самим собой.
+            Открой <b>Избранное</b> (чат с собой) и <b>вставь</b> туда —
+            получится одно длинное сообщение со всей перепиской.
             <button type="button" onClick={openSaved} style={styles.openBtn}>
               Открыть Избранное →
             </button>
           </Step>
-          <Step n={4}>
-            <b>Вставь</b> в поле ввода Избранного. Получится <b>одно
-            длинное сообщение</b> со всей перепиской.
+          <Step n={3}>
+            Зажми это сообщение → <b>«Копировать»</b>. Вернись сюда
+            → вставь. Теперь придёт целиком.
           </Step>
-          <Step n={5}>
-            <b>Отправь</b> его (или просто оставь в поле ввода).
-            Зажми → <b>«Копировать»</b>.
-          </Step>
-          <Step n={6}>
-            Вернись сюда в Купидон → зажми поле ввода → <b>«Вставить»</b>.
-            Теперь Apple отдаст всё — потому что копируется уже
-            <b> одно</b> сообщение, а не пачка.
-          </Step>
-        </div>
-      )}
 
-      {step === 'other' && (
-        <div style={styles.other}>
-          <div style={styles.otherItem}>
-            <b>💻 Telegram Desktop</b> — открой Купидон с компьютера,
+          <div style={styles.footer}>
+            Или открой Купидон с <b>компьютера</b> / <b>Android</b> —
             там вставка работает сразу.
-          </div>
-          <div style={styles.otherItem}>
-            <b>🤖 Android</b> — на Android Telegram нет ограничений,
-            тоже сразу.
-          </div>
-          <div style={styles.otherItem}>
-            <b>📝 По одному сообщению</b> — вставь первое, тапни Enter
-            для новой строки, ещё раз Paste — второе. И так далее.
-            Долго, но работает на iPhone.
           </div>
         </div>
       )}
@@ -130,66 +87,60 @@ function Step({ n, children }: { n: number; children: any }) {
 
 const styles: Record<string, CSSProperties> = {
   wrap: {
-    marginTop: 10,
-    padding: '12px 14px',
-    background: 'rgba(245, 158, 11, 0.08)',
-    border: '1px solid rgba(245, 158, 11, 0.28)',
-    borderRadius: 12,
-    fontSize: 12,
-    lineHeight: '17px',
-    color: 'var(--text-secondary)',
+    marginTop: 6,
   },
-  title: {
-    display: 'flex',
+  toggler: {
+    display: 'inline-flex',
     alignItems: 'center',
     gap: 6,
-    fontSize: 13,
-    fontWeight: 700,
-    color: 'var(--status-warning, #F59E0B)',
-    marginBottom: 6,
+    padding: 4,
+    fontSize: 11,
+    color: 'var(--text-muted)',
+    background: 'transparent',
+    border: 0,
+    cursor: 'pointer',
+    textAlign: 'left',
   },
-  icon: { fontSize: 14, lineHeight: 1 },
-  body: {
+  togglerIcon: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 13, height: 13,
+    borderRadius: '50%',
+    border: '1px solid var(--text-muted)',
+    fontSize: 9,
+    lineHeight: 1,
+    flexShrink: 0,
+  },
+  chevron: {
+    display: 'inline-block',
+    fontSize: 13,
+    lineHeight: 1,
+    color: 'var(--text-muted)',
+    transition: 'transform 160ms',
+  },
+  panel: {
+    marginTop: 6,
+    padding: '10px 12px',
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 10,
     fontSize: 12,
     lineHeight: '17px',
     color: 'var(--text-secondary)',
-    marginBottom: 10,
   },
-  tabs: {
-    display: 'flex',
-    gap: 6,
-    marginBottom: 10,
-    flexWrap: 'wrap',
-  },
-  tabBtn: {
-    padding: '6px 10px',
-    fontSize: 11,
-    fontWeight: 600,
-    background: 'transparent',
-    color: 'var(--text-muted)',
-    border: '1px solid var(--border-subtle)',
-    borderRadius: 8,
-    cursor: 'pointer',
-    transition: 'background 160ms, color 160ms, border-color 160ms',
-  },
-  tabBtnActive: {
-    background: 'var(--accent-soft)',
-    color: 'var(--text-accent)',
-    borderColor: 'var(--border-accent)',
-  },
-  steps: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 8,
+  panelHead: {
+    marginBottom: 8,
   },
   step: {
     display: 'flex',
     alignItems: 'flex-start',
     gap: 8,
+    marginBottom: 6,
   },
   stepNum: {
     flexShrink: 0,
-    width: 20, height: 20,
+    width: 18, height: 18,
     borderRadius: '50%',
     background: 'var(--accent-primary)',
     color: '#fff',
@@ -209,7 +160,8 @@ const styles: Record<string, CSSProperties> = {
   openBtn: {
     display: 'inline-block',
     marginTop: 4,
-    padding: '4px 8px',
+    marginLeft: 0,
+    padding: '3px 8px',
     fontSize: 11,
     fontWeight: 600,
     color: 'var(--text-accent)',
@@ -218,14 +170,11 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 6,
     cursor: 'pointer',
   },
-  other: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 8,
-  },
-  otherItem: {
-    fontSize: 12,
-    lineHeight: '17px',
-    color: 'var(--text-secondary)',
+  footer: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTop: '1px solid var(--border-subtle)',
+    fontSize: 11,
+    color: 'var(--text-muted)',
   },
 };
