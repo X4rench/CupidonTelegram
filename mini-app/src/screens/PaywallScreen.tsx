@@ -30,7 +30,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useMe } from '../contexts/MeContext';
 import { usePaywall, type PaywallReason } from '../contexts/PaywallContext';
 import { useBackButton } from '../utils/backButton';
-import { impactHaptic, notificationHaptic } from '../utils/haptics';
+import { impactHaptic, notificationHaptic, selectionHaptic } from '../utils/haptics';
 import { createYookassaInvoice, getMe, type StarsPlan, type BillingPeriod } from '../api';
 
 // Цены в рублях для UI. Точные суммы — на бэкенде в YK_PRICE_*.
@@ -296,7 +296,7 @@ export function PaywallScreen() {
             return (
               <button
                 key={p}
-                onClick={() => { selectionHapticSafe(); setPeriod(p); }}
+                onClick={() => { selectionHaptic(); setPeriod(p); }}
                 style={{
                   ...styles.periodChip,
                   background: active ? 'var(--accent-primary)' : 'transparent',
@@ -400,6 +400,9 @@ export function PaywallScreen() {
 interface PlanCardProps {
   cfg: PlanConfig;
   price: number;
+  periodSubtitle: string;
+  perMonth: number | null;
+  discountPct: number;
   isCurrent: boolean;
   expiresAt: string | null;
   busy: boolean;
@@ -407,7 +410,7 @@ interface PlanCardProps {
   onBuy: () => void;
 }
 
-function PlanCard({ cfg, price, isCurrent, expiresAt, busy, disabled, onBuy }: PlanCardProps) {
+function PlanCard({ cfg, price, periodSubtitle, perMonth, discountPct, isCurrent, expiresAt, busy, disabled, onBuy }: PlanCardProps) {
   return (
     <div style={{
       ...styles.card,
@@ -424,12 +427,19 @@ function PlanCard({ cfg, price, isCurrent, expiresAt, busy, disabled, onBuy }: P
 
       <div style={styles.planHead}>
         <span style={styles.planTitle}>{cfg.title}</span>
+        {discountPct > 0 && (
+          <span style={styles.savingsBadge}>−{discountPct}%</span>
+        )}
       </div>
 
       <div style={styles.priceRow}>
         <span style={styles.priceBig}>{price} ₽</span>
-        <span style={styles.priceSub}>{cfg.subtitle}</span>
+        <span style={styles.priceSub}>{periodSubtitle}</span>
       </div>
+
+      {perMonth != null && (
+        <div style={styles.perMonthHint}>≈ {perMonth} ₽ / мес</div>
+      )}
 
       <FeatureList items={cfg.features} />
 
@@ -652,6 +662,56 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 13, fontWeight: 700,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
+    color: 'var(--text-muted)',
+  },
+
+  periodSwitcherWrap: {
+    padding: '0 20px 16px',
+  },
+  periodSwitcher: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: 4,
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 14,
+  },
+  periodChip: {
+    flex: 1,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    padding: '10px 8px',
+    fontSize: 13,
+    fontWeight: 700,
+    border: 'none',
+    borderRadius: 10,
+    cursor: 'pointer',
+    transition: 'background 160ms, color 160ms',
+  },
+  discountBadge: {
+    fontSize: 11,
+    fontWeight: 800,
+    padding: '2px 6px',
+    borderRadius: 6,
+    lineHeight: 1,
+  },
+  savingsBadge: {
+    fontSize: 11,
+    fontWeight: 800,
+    padding: '3px 8px',
+    borderRadius: 8,
+    background: 'rgba(34,197,94,0.18)',
+    color: 'var(--status-positive)',
+    letterSpacing: 0.4,
+  },
+  perMonthHint: {
+    marginTop: -8,
+    marginBottom: 12,
+    fontSize: 12,
+    fontWeight: 500,
     color: 'var(--text-muted)',
   },
 
