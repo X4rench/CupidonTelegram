@@ -27,9 +27,12 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
   type CSSProperties,
   type KeyboardEvent,
 } from 'react';
+import { readClipboard, isClipboardReadSupported } from '../utils/clipboard';
+import { notificationHaptic, selectionHaptic } from '../utils/haptics';
 
 interface Props {
   value: string;
@@ -41,6 +44,11 @@ interface Props {
   disabled?: boolean;
   style?: CSSProperties;
   autoFocus?: boolean;
+  /** Показать кнопку «Вставить из буфера». Нужно для multi-line вставок
+      на iOS Telegram WebView, где обычный paste обрезает до первой строки. */
+  pasteButton?: boolean;
+  /** Подпись на кнопке вставки. Default «📋 Вставить из буфера». */
+  pasteButtonLabel?: string;
 }
 
 export interface AutoGrowTextareaHandle {
@@ -94,15 +102,67 @@ function htmlToPlain(html: string): string {
 }
 
 export const AutoGrowTextarea = forwardRef<AutoGrowTextareaHandle, Props>(function AutoGrowTextarea(
-  { value, onChange, onSubmit, placeholder, maxLength, maxHeight = 120, disabled, style, autoFocus },
+  { value, onChange, onSubmit, placeholder, maxLength, maxHeight = 120, disabled, style, autoFocus,
+    pasteButton, pasteButtonLabel },
   ref,
 ) {
   const innerRef = useRef<HTMLTextAreaElement | null>(null);
+  const [pasteBusy, setPasteBusy] = useState(false);
+  const [pasteError, setPasteError] = useState<string | null>(null);
   // Стабильная ссылка на последний onChange — для native listener.
   const onChangeRef = useRef(onChange);
   const maxLenRef   = useRef(maxLength);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   useEffect(() => { maxLenRef.current = maxLength; }, [maxLength]);
+
+  // Авто-сброс ошибки через 3 секунды
+  useEffect(() => {
+    if (!pasteError) return;
+    const t = setTimeout(() => setPasteError(null), 3000);
+    return () => clearTimeout(t);
+  }, [pasteError]);
+
+  const showPasteButton = !!pasteButton && isClipboardReadSupported();
+
+  const handlePasteButton = async () => {
+    if (pasteBusy || disabled) return;
+    selectionHaptic();
+    setPasteBusy(true);
+    setPasteError(null);
+    try {
+      const text = await readClipboard();
+      if (!text) {
+        setPasteError('Буфер обмена пуст или недоступен');
+        notificationHaptic('error');
+        return;
+      }
+      const el = innerRef.current;
+      const start = el?.selectionStart ?? value.length;
+      const end   = el?.selectionEnd   ?? start;
+      const before = value.slice(0, start);
+      const after  = value.slice(end);
+      let next = before + text + after;
+      if (typeof maxLength === 'number' && next.length > maxLength) {
+        next = next.slice(0, maxLength);
+      }
+      onChange(next);
+      notificationHaptic('success');
+      // После вставки — фокус и курсор в конец вставленного
+      requestAnimationFrame(() => {
+        if (!el) return;
+        try { el.focus(); } catch (_) {}
+        try {
+          const pos = Math.min(start + text.length, next.length);
+          el.selectionStart = el.selectionEnd = pos;
+        } catch (_) {}
+      });
+    } catch (e: any) {
+      setPasteError(e?.message || 'Не удалось прочитать буфер');
+      notificationHaptic('error');
+    } finally {
+      setPasteBusy(false);
+    }
+  };
 
   useImperativeHandle(ref, () => ({
     focus: () => innerRef.current?.focus(),
@@ -171,31 +231,116 @@ export const AutoGrowTextarea = forwardRef<AutoGrowTextareaHandle, Props>(functi
     }
   };
 
+  if (!showPasteButton) {
+    return (
+      <textarea
+        ref={innerRef}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onKeyDown={onKey}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        disabled={disabled}
+        autoFocus={autoFocus}
+        rows={1}
+        style={{
+          width: '100%',
+          background: 'transparent',
+          color: 'var(--text-primary)',
+          fontSize: 15,
+          lineHeight: '20px',
+          padding: '10px 14px',
+          border: 0,
+          outline: 0,
+          resize: 'none',
+          maxHeight,
+          overflowY: 'auto',
+          ...style,
+        }}
+      />
+    );
+  }
+
+  // Со встроенной кнопкой «Вставить»: оборачиваем в flex-контейнер,
+  // textarea снизу, кнопка сверху-справа.
   return (
-    <textarea
-      ref={innerRef}
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      onKeyDown={onKey}
-      placeholder={placeholder}
-      maxLength={maxLength}
-      disabled={disabled}
-      autoFocus={autoFocus}
-      rows={1}
-      style={{
-        width: '100%',
-        background: 'transparent',
-        color: 'var(--text-primary)',
-        fontSize: 15,
-        lineHeight: '20px',
-        padding: '10px 14px',
-        border: 0,
-        outline: 0,
-        resize: 'none',
-        maxHeight,
-        overflowY: 'auto',
-        ...style,
-      }}
-    />
+    <div style={{ width: '100%' }}>
+      <div style={pasteRowStyle}>
+        <button
+          type="button"
+          onClick={handlePasteButton}
+          disabled={pasteBusy || disabled}
+          style={{
+            ...pasteBtnStyle,
+            opacity: pasteBusy || disabled ? 0.55 : 1,
+            cursor: pasteBusy || disabled ? 'default' : 'pointer',
+          }}
+          aria-label="Вставить из буфера"
+        >
+          <svg width={13} height={13} viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <rect x={9} y={2} width={6} height={4} rx={1} />
+            <path d="M9 4H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-3" />
+          </svg>
+          <span>{pasteBusy ? 'Вставляю…' : (pasteButtonLabel || 'Вставить')}</span>
+        </button>
+        {pasteError && (
+          <span style={pasteErrorStyle}>{pasteError}</span>
+        )}
+      </div>
+      <textarea
+        ref={innerRef}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onKeyDown={onKey}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        disabled={disabled}
+        autoFocus={autoFocus}
+        rows={1}
+        style={{
+          width: '100%',
+          background: 'transparent',
+          color: 'var(--text-primary)',
+          fontSize: 15,
+          lineHeight: '20px',
+          padding: '10px 14px',
+          border: 0,
+          outline: 0,
+          resize: 'none',
+          maxHeight,
+          overflowY: 'auto',
+          ...style,
+        }}
+      />
+    </div>
   );
 });
+
+const pasteRowStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  justifyContent: 'flex-end',
+  padding: '0 4px 6px',
+};
+
+const pasteBtnStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '6px 10px',
+  borderRadius: 8,
+  fontSize: 12,
+  fontWeight: 600,
+  color: 'var(--text-accent)',
+  background: 'var(--accent-soft)',
+  border: '1px solid var(--border-accent)',
+  transition: 'opacity 160ms, transform 80ms',
+};
+
+const pasteErrorStyle: CSSProperties = {
+  marginRight: 'auto',
+  fontSize: 11,
+  color: 'var(--status-negative)',
+};

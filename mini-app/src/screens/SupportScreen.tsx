@@ -85,6 +85,8 @@ export function SupportScreen() {
           onChange={setSituation}
           placeholder="Например: у неё умер кот, она пишет «я не могу», уже два дня не отвечает на звонки"
           maxHeight={220}
+          pasteButton
+          pasteButtonLabel="Вставить из буфера"
           style={{ minHeight: 100 }}
         />
 

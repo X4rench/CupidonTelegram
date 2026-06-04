@@ -75,6 +75,8 @@ export function RejectionScreen() {
           onChange={setText}
           placeholder="Я: Привет, как дела?&#10;Она: Норм. А ты что хочешь?&#10;Я: …"
           maxHeight={300}
+          pasteButton
+          pasteButtonLabel="Вставить из буфера"
           style={{ minHeight: 140 }}
         />
 

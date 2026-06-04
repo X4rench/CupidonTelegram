@@ -474,6 +474,8 @@ export function WingScreen() {
               onChange={(v) => updateCur({ text: v })}
               placeholder={'Вставь сюда переписку с ней.\nКаждое сообщение — с новой строки.\n\nЯ: привет\nОна: привет, как сам?'}
               maxHeight={400}
+              pasteButton
+              pasteButtonLabel="Вставить из буфера"
               style={{
                 padding: '12px 4px',
                 minHeight: 140,

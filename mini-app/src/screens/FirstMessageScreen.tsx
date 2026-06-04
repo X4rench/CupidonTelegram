@@ -103,6 +103,8 @@ export function FirstMessageScreen() {
           onChange={setProfile}
           placeholder="Например: лет 25, учится на дизайнера, любит кофейни, котов и хайкинг…"
           maxHeight={180}
+          pasteButton
+          pasteButtonLabel="Вставить из буфера"
           style={{ minHeight: 80 }}
         />
 
