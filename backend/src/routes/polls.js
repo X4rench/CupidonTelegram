@@ -66,9 +66,12 @@ router.post('/:id/vote', (req, res) => {
   res.json({
     ok: true,
     user_vote: choice,
+    // base_votes_a/b игнорируем — показываем только реальные голоса
+    // (раньше там были "стартовые" фейковые цифры, чтобы опрос выглядел
+    // оживлённо до запуска; в проде используем только настоящие голоса).
     votes: {
-      a: poll.base_votes_a + realA,
-      b: poll.base_votes_b + realB,
+      a: realA,
+      b: realB,
     },
     result: {
       a: poll.result_a,
@@ -88,9 +91,12 @@ router.get('/:id/result', (req, res) => {
 
   res.json({
     ok: true,
+    // base_votes_a/b игнорируем — показываем только реальные голоса
+    // (раньше там были "стартовые" фейковые цифры, чтобы опрос выглядел
+    // оживлённо до запуска; в проде используем только настоящие голоса).
     votes: {
-      a: poll.base_votes_a + realA,
-      b: poll.base_votes_b + realB,
+      a: realA,
+      b: realB,
     },
     result: {
       a: poll.result_a,

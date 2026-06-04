@@ -35,13 +35,24 @@ export function CommunityScreen() {
   return (
     <Layout>
       <div style={styles.container}>
-        <h1 style={styles.h1}>Сообщество 💞</h1>
+        <h1 style={styles.h1}>Сообщество</h1>
         <p style={styles.intro}>
-          Реальные диалоги других пользователей с разбором. Учись на чужом опыте.
+          Здесь будут истории, кейсы и разборы реальных диалогов.
+          Скоро добавим первые публикации.
         </p>
 
         <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {MOCK_FEED.map(post => (
+          {MOCK_FEED.length === 0 ? (
+            <Card style={{ padding: 24, textAlign: 'center' }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>📭</div>
+              <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                Пока пусто
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                Первые публикации появятся скоро. Загляни позже!
+              </div>
+            </Card>
+          ) : MOCK_FEED.map(post => (
             <FeedCard
               key={post.id}
               post={post}

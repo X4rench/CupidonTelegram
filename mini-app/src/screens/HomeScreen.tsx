@@ -97,7 +97,7 @@ export function HomeScreen() {
       <div style={{ padding: '16px 20px 0' }}>
         {/* Header */}
         <div style={styles.header}>
-          <h1 style={styles.greeting}>Привет, {greetingName} 💘</h1>
+          <h1 style={styles.greeting}>Привет, {greetingName}</h1>
           <button
             onClick={() => { selectionHaptic(); nav('/profile'); }}
             style={styles.profileBtn}

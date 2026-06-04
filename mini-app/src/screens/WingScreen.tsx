@@ -344,6 +344,26 @@ export function WingScreen() {
       <div style={styles.container}>
         {/* Header */}
         <div style={styles.header}>
+          {/* SVG-стрела вместо эмодзи: красивая закруглённая иконка
+              с лёгким градиентом в тон бренду */}
+          <span style={styles.titleIcon}>
+            <svg width={26} height={26} viewBox="0 0 24 24" fill="none"
+                 stroke="url(#cupidonArrow)" strokeWidth={2.2}
+                 strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <defs>
+                <linearGradient id="cupidonArrow" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%"   stopColor="#F43F5E" />
+                  <stop offset="100%" stopColor="#A855F7" />
+                </linearGradient>
+              </defs>
+              {/* стержень + наконечник */}
+              <line x1="3"  y1="21" x2="20" y2="4" />
+              <polyline points="20,12 20,4 12,4" />
+              {/* оперение */}
+              <line x1="3"  y1="21" x2="7"  y2="20" />
+              <line x1="3"  y1="21" x2="4"  y2="17" />
+            </svg>
+          </span>
           <h1 style={styles.title}>Стрела</h1>
         </div>
 
@@ -449,61 +469,18 @@ export function WingScreen() {
             <AutoGrowTextarea
               value={text}
               onChange={(v) => updateCur({ text: v })}
-              placeholder={contextEnabled
-                ? 'Добавь новые сообщения. Прошлый контекст AI уже видит.'
-                : 'Вставь сюда переписку с ней. Я: ... Она: ...'}
-              maxHeight={300}
-              style={{ padding: '8px 0' }}
-            />
-
-            <div style={styles.divider} />
-
-            {/* Контекст checkbox */}
-            <button
-              onClick={() => hasPrevCtx && setContextEnabled(v => !v)}
+              placeholder={'Вставь сюда переписку с ней.\nКаждое сообщение — с новой строки.\n\nЯ: привет\nОна: привет, как сам?'}
+              maxHeight={400}
               style={{
-                ...styles.checkRow,
-                opacity: hasPrevCtx ? 1 : 0.35,
-                cursor: hasPrevCtx ? 'pointer' : 'default',
+                padding: '12px 4px',
+                minHeight: 140,
+                lineHeight: '22px',
+                fontSize: 15,
               }}
-              disabled={!hasPrevCtx}
-            >
-              <span
-                style={{
-                  ...styles.check,
-                  borderColor: contextEnabled ? 'var(--accent-primary)' : 'var(--border-default)',
-                  background: contextEnabled ? 'var(--accent-primary)' : 'transparent',
-                }}
-              >
-                {contextEnabled && (
-                  <svg width={10} height={10} viewBox="0 0 24 24" fill="none"
-                    stroke="#fff" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20,6 9,17 4,12" />
-                  </svg>
-                )}
-              </span>
-              <span style={{ ...styles.checkLabel, color: contextEnabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                Использовать прошлый контекст
-              </span>
-              {!hasPrevCtx && (
-                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>нет данных</span>
-              )}
-            </button>
-            {contextEnabled && cur.lastAnalyzedText && (
-              <div style={styles.ctxBanner}>
-                <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
-                  stroke="var(--text-accent)" strokeWidth={2} strokeLinecap="round">
-                  <circle cx={12} cy={12} r={10} />
-                  <path d="M12 8v4l3 3" />
-                </svg>
-                <div style={{ flex: 1 }}>
-                  <div style={styles.ctxBannerTitle}>Контекст подгружен</div>
-                  <div style={styles.ctxBannerSub}>
-                    {cur.lastMsgCount ? `${cur.lastMsgCount} реплик` : 'данные'} · {cur.lastAnalyzedAt || '—'}
-                  </div>
-                </div>
-              </div>
-            )}
+            />
+            {/* Чекбокс «использовать прошлый контекст» убран по запросу клиента.
+                Возможность вернуть — флаг contextEnabled остаётся в state, но
+                теперь всегда false (AI анализирует только текущий текст). */}
           </Card>
 
           <AIThinkingBanner visible={loading} />
@@ -839,7 +816,14 @@ function PinIcon({ size = 10, color }: { size?: number; color: string }) {
 
 const styles: Record<string, CSSProperties> = {
   container: { paddingTop: 8 },
-  header: { padding: '16px 20px 12px', display: 'flex', justifyContent: 'center' },
+  header: {
+    padding: '16px 20px 12px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  titleIcon: { display: 'inline-flex', alignItems: 'center', lineHeight: 0 },
   title: { margin: 0, fontSize: 22, fontWeight: 600, color: 'var(--text-primary)' },
 
   tabsScroll: {

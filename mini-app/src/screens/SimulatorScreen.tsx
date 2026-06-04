@@ -141,6 +141,32 @@ export function SimulatorScreen() {
         {/* Типаж */}
         <Section title="Выбери типаж">
           <div style={styles.typesScroll}>
+            {/* Карточка добавления своей девушки — всегда первая в скролле */}
+            <button
+              onClick={() => { impactHaptic('light'); nav('/create-girl'); }}
+              style={{
+                ...styles.typeCard,
+                borderStyle: 'dashed',
+                borderColor: 'var(--border-accent)',
+                background: 'linear-gradient(135deg, rgba(244,63,94,0.08), rgba(168,85,247,0.08))',
+              }}
+              aria-label="Добавить свою девушку"
+            >
+              <div style={{
+                ...styles.typeAvatar,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width={36} height={36} viewBox="0 0 24 24" fill="none"
+                  stroke="var(--text-accent)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx={12} cy={12} r={10} />
+                  <line x1={12} y1={8}  x2={12} y2={16} />
+                  <line x1={8}  y1={12} x2={16} y2={12} />
+                </svg>
+              </div>
+              <div style={{ ...styles.typeName, color: 'var(--text-accent)' }}>Своя</div>
+              <div style={styles.typeSub}>Создать новую</div>
+            </button>
+
             {allTypes.map((t, i) => {
               const sel = i === selectedTypeIdx;
               const isCustom = i >= TYPAZHES_SIM.length;
