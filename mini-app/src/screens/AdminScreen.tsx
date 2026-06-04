@@ -164,7 +164,10 @@ function StatsTab() {
   if (!stats)  return null;
 
   // metric — ключ для /admin/chart/<metric> (null → не кликабельна, без диаграммы)
-  const metrics: { label: string; value: string | number; emoji: string; metric: string | null }[] = [
+  type Metric = { label: string; value: string | number; emoji: string; metric: string | null };
+
+  // Базовые метрики (приложение в целом)
+  const generalMetrics: Metric[] = [
     { label: 'Пользователей',     value: stats.users,        emoji: '👥', metric: 'users' },
     { label: 'Анализов',          value: stats.analyses,     emoji: '🔍', metric: 'analyses' },
     { label: 'Симуляций',         value: stats.simulations,  emoji: '🎭', metric: 'simulations' },
@@ -172,48 +175,227 @@ function StatsTab() {
                                                              emoji: '⭐', metric: null },
     { label: 'Запросов сегодня',  value: stats.requests_today, emoji: '⚡', metric: 'requests' },
   ];
-  if (stats.rejections != null) metrics.push({ label: 'Разборы отказов', value: stats.rejections, emoji: '💔', metric: 'rejections' });
-  if (stats.paid_subs  != null) metrics.push({ label: 'Активные подписки', value: stats.paid_subs, emoji: '💎', metric: 'paid_subs' });
-  metrics.push({ label: 'Партнёры', value: '→', emoji: '💼', metric: 'partners' });
+  if (stats.rejections != null) {
+    generalMetrics.push({ label: 'Разборы отказов', value: stats.rejections, emoji: '💔', metric: 'rejections' });
+  }
+  generalMetrics.push({ label: 'Партнёры', value: '→', emoji: '💼', metric: 'partners' });
+
+  // Подписки по тиру (новые M24)
+  const byTier = stats.paid_subs_by_tier;
+  const subMetrics: Metric[] = byTier ? [
+    { label: 'Всего активных', value: stats.paid_subs ?? 0,    emoji: '💎', metric: 'paid_subs' },
+    { label: 'Basic',          value: byTier.basic,            emoji: '🔵', metric: 'paid_subs_basic' },
+    { label: 'Premium',        value: byTier.premium,          emoji: '⭐', metric: 'paid_subs_premium' },
+    { label: 'Day Pass',       value: byTier.day_pass,         emoji: '⚡', metric: 'paid_subs_day_pass' },
+  ] : [];
+
+  // Free-юзеры (новые M24)
+  const freeMetrics: Metric[] = stats.free_users_total != null ? [
+    { label: 'Free всего',        value: stats.free_users_total,        emoji: '👤', metric: null },
+    { label: 'Free активн. сегодня', value: stats.free_users_today ?? 0, emoji: '🆓', metric: 'free_active' },
+    { label: 'С запасными запр.', value: stats.bonus_quota_users ?? 0,  emoji: '🎁', metric: null },
+  ] : [];
+
+  const util = stats.limit_utilization;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
         Тапни по карточке → откроется диаграмма за 30 дней / 12 месяцев.
         Обновление — раз в 24 часа.
       </div>
-      {metrics.map((m) => {
-        const clickable = m.metric != null;
-        return (
-          <Card
-            key={m.label}
-            onClick={clickable ? () => { selectionHaptic(); nav(`/admin/chart/${m.metric}`); } : undefined}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              cursor: clickable ? 'pointer' : 'default',
-              transition: 'transform 80ms',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 22 }}>{m.emoji}</span>
-              <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{m.label}</span>
+
+      {/* Общая статистика */}
+      <SectionTitle>Приложение</SectionTitle>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {generalMetrics.map(m => <MetricRow key={m.label} m={m} nav={nav} />)}
+      </div>
+
+      {/* Подписки по тиру */}
+      {subMetrics.length > 0 && (
+        <>
+          <SectionTitle>Подписки</SectionTitle>
+          {/* Donut по тиру (если есть хоть одна подписка) */}
+          {stats.paid_subs && stats.paid_subs > 0 && byTier && (
+            <Card style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <SubsDonut data={byTier} />
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <DonutLegend color="#3B82F6" label="Basic"    value={byTier.basic}    total={stats.paid_subs} />
+                <DonutLegend color="#A855F7" label="Premium"  value={byTier.premium}  total={stats.paid_subs} />
+                <DonutLegend color="#22C55E" label="Day Pass" value={byTier.day_pass} total={stats.paid_subs} />
+              </div>
+            </Card>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {subMetrics.map(m => <MetricRow key={m.label} m={m} nav={nav} />)}
+          </div>
+        </>
+      )}
+
+      {/* Free-юзеры */}
+      {freeMetrics.length > 0 && (
+        <>
+          <SectionTitle>Free-юзеры</SectionTitle>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {freeMetrics.map(m => <MetricRow key={m.label} m={m} nav={nav} />)}
+          </div>
+        </>
+      )}
+
+      {/* Утилизация дневных лимитов */}
+      {util && (util.basic_users + util.premium_users + util.free_users) > 0 && (
+        <>
+          <SectionTitle>Утилизация лимитов (сегодня)</SectionTitle>
+          <Card>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+              Средний % использования дневного лимита по активным сегодня юзерам.
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-accent)' }}>{m.value}</span>
-              {clickable && (
-                <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth={2}>
-                  <polyline points="9,18 15,12 9,6" />
-                </svg>
-              )}
-            </div>
+            <UtilBar color="#3B82F6" label="Basic"   pct={util.basic_avg_pct}   users={util.basic_users} />
+            <UtilBar color="#A855F7" label="Premium" pct={util.premium_avg_pct} users={util.premium_users} />
+            <UtilBar color="#94A3B8" label="Free"    pct={util.free_avg_pct}    users={util.free_users} />
           </Card>
-        );
-      })}
+        </>
+      )}
+
       <div style={{ marginTop: 8 }}>
         <SecondaryButton onClick={load} full>Обновить</SecondaryButton>
       </div>
     </div>
   );
+}
+
+// ── Компоненты для StatsTab ──────────────────────────────────────────────────
+
+function MetricRow({ m, nav }: {
+  m: { label: string; value: string | number; emoji: string; metric: string | null };
+  nav: (path: string) => void;
+}) {
+  const clickable = m.metric != null;
+  return (
+    <Card
+      onClick={clickable ? () => { selectionHaptic(); nav(`/admin/chart/${m.metric}`); } : undefined}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        cursor: clickable ? 'pointer' : 'default',
+        transition: 'transform 80ms',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span style={{ fontSize: 22 }}>{m.emoji}</span>
+        <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{m.label}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-accent)' }}>{m.value}</span>
+        {clickable && (
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth={2}>
+            <polyline points="9,18 15,12 9,6" />
+          </svg>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function SectionTitle({ children }: { children: ReactNode }) {
+  return (
+    <h3 style={{
+      margin: '4px 0 4px',
+      fontSize: 11, fontWeight: 700,
+      textTransform: 'uppercase', letterSpacing: 0.6,
+      color: 'var(--text-muted)',
+    }}>{children}</h3>
+  );
+}
+
+// Donut chart для разбивки подписок по тиру — inline SVG, без библиотек.
+function SubsDonut({ data }: { data: { basic: number; premium: number; day_pass: number } }) {
+  const total = data.basic + data.premium + data.day_pass;
+  if (total === 0) return null;
+  const segments = [
+    { value: data.basic,    color: '#3B82F6' },
+    { value: data.premium,  color: '#A855F7' },
+    { value: data.day_pass, color: '#22C55E' },
+  ];
+  const size = 92, stroke = 12, r = (size - stroke) / 2;
+  const C = 2 * Math.PI * r;
+  let offset = 0;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={size/2} cy={size/2} r={r}
+              fill="none" stroke="var(--border-subtle)" strokeWidth={stroke} />
+      {segments.map((s, i) => {
+        if (s.value === 0) return null;
+        const len = (s.value / total) * C;
+        const el = (
+          <circle key={i}
+            cx={size/2} cy={size/2} r={r}
+            fill="none" stroke={s.color} strokeWidth={stroke}
+            strokeDasharray={`${len} ${C - len}`}
+            strokeDashoffset={-offset}
+            transform={`rotate(-90 ${size/2} ${size/2})`}
+          />
+        );
+        offset += len;
+        return el;
+      })}
+      <text x={size/2} y={size/2 + 6} textAnchor="middle"
+            fontSize={20} fontWeight={700} fill="var(--text-primary)">
+        {total}
+      </text>
+    </svg>
+  );
+}
+
+function DonutLegend({ color, label, value, total }: {
+  color: string; label: string; value: number; total: number;
+}) {
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+      <span style={{
+        display: 'inline-block', width: 10, height: 10,
+        borderRadius: 2, background: color, flexShrink: 0,
+      }} />
+      <span style={{ flex: 1, color: 'var(--text-secondary)' }}>{label}</span>
+      <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{value}</span>
+      <span style={{ color: 'var(--text-muted)', minWidth: 40, textAlign: 'right' }}>{pct}%</span>
+    </div>
+  );
+}
+
+function UtilBar({ color, label, pct, users }: {
+  color: string; label: string; pct: number; users: number;
+}) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        marginBottom: 4, fontSize: 13,
+      }}>
+        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
+        <span style={{ color: 'var(--text-muted)' }}>
+          {users === 0 ? 'нет активных' : `${users} ${pluralUsers(users)} · ${pct}%`}
+        </span>
+      </div>
+      <div style={{
+        height: 10, borderRadius: 5,
+        background: 'var(--bg-elevated)', overflow: 'hidden',
+      }}>
+        <div style={{
+          width: `${Math.min(100, pct)}%`, height: '100%',
+          background: color,
+          transition: 'width 240ms',
+        }} />
+      </div>
+    </div>
+  );
+}
+
+function pluralUsers(n: number): string {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'юзер';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'юзера';
+  return 'юзеров';
 }
 
 // ─── Subscriptions Tab ──────────────────────────────────────────────────────

@@ -151,14 +151,104 @@ router.post('/prompts/test', async (req, res) => {
 
 // ── GET /api/v1/admin/stats ───────────────────────────────────────────────────
 router.get('/stats', (req, res) => {
+  // Базовые метрики
+  const totalUsers = db.get('SELECT COUNT(*) as c FROM users').c;
+
+  // Подписки с разбивкой по тиру.
+  // datetime(expires_at) > datetime('now') = активна сейчас.
+  const subsByTier = db.all(
+    `SELECT plan, COUNT(*) as c FROM subscriptions
+      WHERE datetime(expires_at) > datetime('now')
+      GROUP BY plan`
+  );
+  const paid_subs_by_tier = { basic: 0, premium: 0, day_pass: 0 };
+  for (const r of subsByTier) {
+    if (r.plan in paid_subs_by_tier) paid_subs_by_tier[r.plan] = r.c;
+  }
+  const paid_subs = paid_subs_by_tier.basic + paid_subs_by_tier.premium + paid_subs_by_tier.day_pass;
+
+  // Юзеры с tg_bonus_quota > 0 — те у кого есть докуплённые/бонусные запросы
+  const bonus_quota_users = db.get(
+    `SELECT COUNT(*) as c FROM users WHERE tg_bonus_quota > 0`
+  ).c;
+
+  // Free-юзеры: те у кого нет активной подписки.
+  // Total — общее число юзеров без подписки. Active today — кто делал запрос сегодня.
+  // Используем daily_reset_at = today AND daily_requests > 0 (надёжно: при инкременте
+  // лимита в checkAndIncrementLimit мы обновляем daily_reset_at).
+  const today = new Date().toISOString().slice(0, 10);
+  const free_users_total = db.get(
+    `SELECT COUNT(*) as c FROM users u
+      WHERE NOT EXISTS (
+        SELECT 1 FROM subscriptions s
+         WHERE s.telegram_user_id = u.telegram_user_id
+           AND datetime(s.expires_at) > datetime('now')
+      )`
+  ).c;
+  const free_users_today = db.get(
+    `SELECT COUNT(*) as c FROM users u
+      WHERE u.daily_reset_at = ? AND u.daily_requests > 0
+        AND NOT EXISTS (
+          SELECT 1 FROM subscriptions s
+           WHERE s.telegram_user_id = u.telegram_user_id
+             AND datetime(s.expires_at) > datetime('now')
+        )`,
+    today
+  ).c;
+
+  // Утилизация лимитов. Считаем средний процент использования по активным
+  // сегодня юзерам каждого тира. Лимиты Free/Basic/Premium читаем из env.
+  const FREE_L  = parseInt(process.env.FREE_DAILY_LIMIT,    10) || 3;
+  const BASIC_L = parseInt(process.env.BASIC_DAILY_LIMIT,   10) || 30;
+  const PREM_L  = parseInt(process.env.PREMIUM_DAILY_LIMIT, 10) || 100;
+  const utilRows = db.all(
+    `SELECT
+       u.telegram_user_id,
+       u.daily_requests,
+       s.plan as plan
+     FROM users u
+     LEFT JOIN subscriptions s
+       ON s.telegram_user_id = u.telegram_user_id
+      AND datetime(s.expires_at) > datetime('now')
+     WHERE u.daily_reset_at = ?
+       AND u.daily_requests > 0`,
+    today
+  );
+  let basicSum = 0, basicCnt = 0;
+  let premSum = 0, premCnt = 0;
+  let freeSum = 0, freeCnt = 0;
+  for (const r of utilRows) {
+    const tier = r.plan === 'premium' ? 'premium'
+              : r.plan === 'basic' || r.plan === 'day_pass' ? 'basic'
+              : 'free';
+    const limit = tier === 'premium' ? PREM_L : tier === 'basic' ? BASIC_L : FREE_L;
+    const pct = Math.min(100, (r.daily_requests / limit) * 100);
+    if (tier === 'premium') { premSum += pct; premCnt++; }
+    else if (tier === 'basic') { basicSum += pct; basicCnt++; }
+    else { freeSum += pct; freeCnt++; }
+  }
+  const limit_utilization = {
+    basic_avg_pct:   basicCnt > 0 ? Math.round(basicSum / basicCnt) : 0,
+    basic_users:     basicCnt,
+    premium_avg_pct: premCnt  > 0 ? Math.round(premSum  / premCnt)  : 0,
+    premium_users:   premCnt,
+    free_avg_pct:    freeCnt  > 0 ? Math.round(freeSum  / freeCnt)  : 0,
+    free_users:      freeCnt,
+  };
+
   const stats = {
-    users:          db.get('SELECT COUNT(*) as c FROM users').c,
+    users:          totalUsers,
     analyses:       db.get('SELECT COUNT(*) as c FROM analysis_sessions').c,
     simulations:    db.get('SELECT COUNT(*) as c FROM simulator_sessions').c,
     rejections:     db.get('SELECT COUNT(*) as c FROM rejection_analyses').c,
     avg_score:      db.get('SELECT AVG(score) as a FROM analysis_sessions WHERE score IS NOT NULL').a,
     requests_today: db.get(`SELECT COUNT(*) as c FROM request_logs WHERE created_at >= date('now')`).c,
-    paid_subs:      db.get(`SELECT COUNT(*) as c FROM subscriptions WHERE datetime(expires_at) > datetime('now')`).c,
+    paid_subs,
+    paid_subs_by_tier,
+    bonus_quota_users,
+    free_users_total,
+    free_users_today,
+    limit_utilization,
   };
 
   // recent_users — без telegram_user_id и username в открытом виде (PII), маскируем
@@ -198,10 +288,12 @@ const METRIC_QUERIES = {
 };
 
 function computeTimeline(metric) {
-  // paid_subs — особый случай: snapshot активных подписок на конец дня.
-  if (metric === 'paid_subs') {
-    return computePaidSubsTimeline();
-  }
+  // paid_subs* — особые случаи: snapshot активных подписок на конец дня.
+  if (metric === 'paid_subs')         return computePaidSubsTimeline(null);
+  if (metric === 'paid_subs_basic')   return computePaidSubsTimeline('basic');
+  if (metric === 'paid_subs_premium') return computePaidSubsTimeline('premium');
+  if (metric === 'paid_subs_day_pass') return computePaidSubsTimeline('day_pass');
+  if (metric === 'free_active')       return computeFreeActiveTimeline();
   const cfg = METRIC_QUERIES[metric];
   if (!cfg) return null;
 
@@ -224,13 +316,16 @@ function computeTimeline(metric) {
  * Активные подписки на каждый из последних 30 дней / 12 месяцев.
  * Активная = started_at <= D AND expires_at > D (для дневного среза D = конец дня UTC).
  * O(дни * подписки) — на нашем масштабе ок.
+ * @param {string|null} planFilter — если задан, считаем только подписки данного плана.
  */
-function computePaidSubsTimeline() {
-  // Берём все подписки чьи expires_at > 30 дней назад (могли быть активными)
-  // или started_at в пределах окна. Это оставляет небольшое окно сверх — норм.
+function computePaidSubsTimeline(planFilter) {
+  const where = planFilter
+    ? `WHERE plan = ? AND datetime(expires_at) > datetime('now', '-12 months')`
+    : `WHERE datetime(expires_at) > datetime('now', '-12 months')`;
+  const params = planFilter ? [planFilter] : [];
   const subs = db.all(
-    `SELECT started_at, expires_at FROM subscriptions
-      WHERE datetime(expires_at) > datetime('now', '-12 months')`
+    `SELECT started_at, expires_at FROM subscriptions ${where}`,
+    ...params
   );
 
   const today = new Date();
@@ -259,6 +354,71 @@ function computePaidSubsTimeline() {
       s.started_at <= iso && s.expires_at > iso
     ).length;
     monthly.push({ month: monthKey, value: count });
+  }
+
+  return { daily, monthly };
+}
+
+/**
+ * Free-active timeline: DISTINCT юзеры в request_logs за день у которых
+ * не было активной подписки в этот день.
+ * Сложно с подзапросами в SQLite, поэтому делаем 2 SQL и склейку в JS.
+ */
+function computeFreeActiveTimeline() {
+  // 1) Daily: для каждого дня — DISTINCT telegram_user_id из request_logs
+  const dailyAllUsers = db.all(
+    `SELECT strftime('%Y-%m-%d', created_at) as d, telegram_user_id
+       FROM request_logs
+      WHERE telegram_user_id IS NOT NULL
+        AND created_at >= datetime('now', '-29 days')
+      GROUP BY d, telegram_user_id`
+  );
+  const monthlyAllUsers = db.all(
+    `SELECT strftime('%Y-%m', created_at) as m, telegram_user_id
+       FROM request_logs
+      WHERE telegram_user_id IS NOT NULL
+        AND created_at >= datetime('now', '-11 months', 'start of month')
+      GROUP BY m, telegram_user_id`
+  );
+
+  // 2) Все подписки за последний год для проверки активности на конкретный день
+  const subs = db.all(
+    `SELECT telegram_user_id, started_at, expires_at FROM subscriptions
+      WHERE datetime(expires_at) > datetime('now', '-12 months')`
+  );
+
+  const today = new Date();
+
+  // Helper: был ли юзер активным платником на дату dateIsoEndOfDay
+  function wasActiveOn(tgId, isoStr) {
+    return subs.some(s =>
+      s.telegram_user_id === tgId && s.started_at <= isoStr && s.expires_at > isoStr
+    );
+  }
+
+  const daily = [];
+  for (let i = 29; i >= 0; i--) {
+    const dt = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - i));
+    const key = dt.toISOString().slice(0, 10);
+    const eod = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate(), 23, 59, 59));
+    const eodIso = eod.toISOString().slice(0, 19).replace('T', ' ');
+    const usersThisDay = dailyAllUsers.filter(r => r.d === key);
+    const freeCount = usersThisDay.filter(r => !wasActiveOn(r.telegram_user_id, eodIso)).length;
+    daily.push({ date: key, value: freeCount });
+  }
+
+  const monthly = [];
+  const cur = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+  for (let i = 11; i >= 0; i--) {
+    const dt = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() - i, 1));
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const key = `${dt.getUTCFullYear()}-${mm}`;
+    // Конец месяца как проверка активности
+    const eom = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0, 23, 59, 59));
+    const eomIso = eom.toISOString().slice(0, 19).replace('T', ' ');
+    const usersThisMonth = monthlyAllUsers.filter(r => r.m === key);
+    const freeCount = usersThisMonth.filter(r => !wasActiveOn(r.telegram_user_id, eomIso)).length;
+    monthly.push({ month: key, value: freeCount });
   }
 
   return { daily, monthly };
@@ -293,6 +453,9 @@ function buildMonthly(raw) {
 const ALLOWED_METRICS = new Set([
   'users', 'analyses', 'simulations', 'rejections',
   'requests', 'paid_subs', 'partners',
+  // Разбивка подписок по тиру + free-активные
+  'paid_subs_basic', 'paid_subs_premium', 'paid_subs_day_pass',
+  'free_active',
 ]);
 
 router.get('/stats/timeline', (req, res) => {

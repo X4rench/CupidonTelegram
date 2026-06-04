@@ -637,6 +637,19 @@ export interface AdminStats {
   avg_score: number | null;
   requests_today: number;
   paid_subs?: number;
+  // Расширенные метрики (M24)
+  paid_subs_by_tier?: { basic: number; premium: number; day_pass: number };
+  bonus_quota_users?: number;
+  free_users_total?: number;
+  free_users_today?: number;
+  limit_utilization?: {
+    basic_avg_pct: number;
+    basic_users: number;
+    premium_avg_pct: number;
+    premium_users: number;
+    free_avg_pct: number;
+    free_users: number;
+  };
 }
 export interface AdminStatsResp { ok: boolean; stats: AdminStats; recent_users?: any[] }
 
@@ -907,7 +920,9 @@ export const partnerAdminApi = {
 // ── Admin timeline (для диаграмм в админке) ────────────────────────────────
 export type AdminMetricKey =
   | 'users' | 'analyses' | 'simulations' | 'rejections'
-  | 'requests' | 'paid_subs' | 'partners';
+  | 'requests' | 'paid_subs' | 'partners'
+  | 'paid_subs_basic' | 'paid_subs_premium' | 'paid_subs_day_pass'
+  | 'free_active';
 
 export type PartnerMetricKey =
   | 'new_referrals' | 'paid_users' | 'gross_revenue' | 'commission';

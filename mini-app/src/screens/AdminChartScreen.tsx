@@ -27,13 +27,17 @@ import {
 
 // Подписи и единицы для каждой метрики (общие).
 const ADMIN_METRIC_META: Record<AdminMetricKey, { title: string; unit: string; emoji: string }> = {
-  users:       { title: 'Пользователи',     unit: 'регистр.',  emoji: '👥' },
-  analyses:    { title: 'Анализы',          unit: 'анализов',  emoji: '🔍' },
-  simulations: { title: 'Симуляции',        unit: 'симуляций', emoji: '🎭' },
-  rejections:  { title: 'Разборы отказов',  unit: 'разборов',  emoji: '💔' },
-  requests:    { title: 'Запросы (всего)',  unit: 'запросов',  emoji: '⚡' },
-  paid_subs:   { title: 'Активные подписки',unit: 'активн.',   emoji: '💎' },
-  partners:    { title: 'Партнёры',         unit: 'партнёров', emoji: '💼' },
+  users:                { title: 'Пользователи',          unit: 'регистр.',  emoji: '👥' },
+  analyses:             { title: 'Анализы',               unit: 'анализов',  emoji: '🔍' },
+  simulations:          { title: 'Симуляции',             unit: 'симуляций', emoji: '🎭' },
+  rejections:           { title: 'Разборы отказов',       unit: 'разборов',  emoji: '💔' },
+  requests:             { title: 'Запросы (всего)',       unit: 'запросов',  emoji: '⚡' },
+  paid_subs:            { title: 'Активные подписки',     unit: 'активн.',   emoji: '💎' },
+  paid_subs_basic:      { title: 'Активные Basic',        unit: 'активн.',   emoji: '🔵' },
+  paid_subs_premium:    { title: 'Активные Premium',      unit: 'активн.',   emoji: '⭐' },
+  paid_subs_day_pass:   { title: 'Активные Day Pass',     unit: 'активн.',   emoji: '⚡' },
+  free_active:          { title: 'Free-юзеры активные',   unit: 'юзеров',    emoji: '🆓' },
+  partners:             { title: 'Партнёры',              unit: 'партнёров', emoji: '💼' },
 };
 
 const PARTNER_METRIC_META: Record<PartnerMetricKey, { title: string; unit: string; emoji: string; isMoney: boolean }> = {
