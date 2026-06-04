@@ -31,7 +31,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
 } from 'react';
-import { readClipboard, isClipboardReadSupported } from '../utils/clipboard';
+import { readClipboard, isClipboardReadSupported, clipboardErrorMessage } from '../utils/clipboard';
 import { notificationHaptic, selectionHaptic } from '../utils/haptics';
 
 interface Props {
@@ -130,12 +130,18 @@ export const AutoGrowTextarea = forwardRef<AutoGrowTextareaHandle, Props>(functi
     setPasteBusy(true);
     setPasteError(null);
     try {
-      const text = await readClipboard();
-      if (!text) {
-        setPasteError('Буфер обмена пуст или недоступен');
+      const result = await readClipboard();
+      // Логируем debug-инфу в console — если у юзера всё ещё не работает,
+      // можно открыть console через Telegram → Settings → Developer и увидеть
+      // версию TG, платформу, какой путь сработал и где упало.
+      console.log('[clipboard]', result);
+      if (!result.text) {
+        // Полезное сообщение пользователю по причине отказа
+        setPasteError(clipboardErrorMessage(result.reason));
         notificationHaptic('error');
         return;
       }
+      const text = result.text;
       const el = innerRef.current;
       const start = el?.selectionStart ?? value.length;
       const end   = el?.selectionEnd   ?? start;
@@ -157,6 +163,7 @@ export const AutoGrowTextarea = forwardRef<AutoGrowTextareaHandle, Props>(functi
         } catch (_) {}
       });
     } catch (e: any) {
+      console.error('[clipboard] exception', e);
       setPasteError(e?.message || 'Не удалось прочитать буфер');
       notificationHaptic('error');
     } finally {
