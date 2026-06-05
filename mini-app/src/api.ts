@@ -131,6 +131,10 @@ export interface MeUser {
   simulations_count?: number;
   tg_bonus_claimed?: boolean;
   tg_bonus_quota?: number;
+  // Симулятор-сообщения (отдельный счётчик от daily_used)
+  sim_daily_used?: number;
+  sim_daily_limit?: number;
+  sim_bonus_quota?: number;
   is_admin?: boolean;
   is_partner?: boolean;
   created_at?: string;

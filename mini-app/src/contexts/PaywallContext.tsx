@@ -17,7 +17,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import type { StarsPlan } from '../api';
 import type { MeResponse } from '../api';
 
-export type PaywallReason = 'limit' | 'nsfw' | 'manual';
+export type PaywallReason = 'limit' | 'sim_limit' | 'nsfw' | 'manual';
 
 export interface PaywallState {
   isOpen: boolean;

@@ -43,6 +43,7 @@ function durationDaysByPeriod(plan, period) {
 // См. routes/yookassa.js, routes/telegram.js, utils/reconcile.js — все три места
 // должны быть синхронизированы.
 const DAY_PASS_BONUS_QUOTA = parseInt(process.env.DAY_PASS_BONUS_QUOTA, 10) || 100;
+const DAY_PASS_SIM_BONUS   = parseInt(process.env.DAY_PASS_SIM_BONUS, 10)   || 50;
 
 /**
  * Опциональная constant-time проверка секрета.
@@ -175,11 +176,15 @@ async function handlePaymentSucceeded(payment) {
         }
       }
 
+      // Day Pass начисляет ДВЕ квоты сразу:
+      //   - tg_bonus_quota   = +N к общим запросам (Стрела/Разбор/Поддержка/etc)
+      //   - sim_bonus_quota  = +M к сообщениям симулятора (отдельный счётчик)
       db.run(
         `UPDATE users
-           SET tg_bonus_quota = COALESCE(tg_bonus_quota, 0) + ?
+           SET tg_bonus_quota  = COALESCE(tg_bonus_quota, 0)  + ?,
+               sim_bonus_quota = COALESCE(sim_bonus_quota, 0) + ?
          WHERE telegram_user_id = ?`,
-        DAY_PASS_BONUS_QUOTA, tgUserId
+        DAY_PASS_BONUS_QUOTA, DAY_PASS_SIM_BONUS, tgUserId
       );
 
       const row = db.get('SELECT id FROM payments WHERE charge_id = ?', chargeId);
@@ -193,7 +198,7 @@ async function handlePaymentSucceeded(payment) {
       catch (e) { console.warn('[yookassa] commission failed:', e?.message); }
     }
 
-    console.log(`[yookassa] day_pass +${DAY_PASS_BONUS_QUOTA} quota: tg_user=${tgUserId} amount=${amountMinor/100} ${currency} charge=${chargeId}`);
+    console.log(`[yookassa] day_pass +${DAY_PASS_BONUS_QUOTA} quota +${DAY_PASS_SIM_BONUS} sim: tg_user=${tgUserId} amount=${amountMinor/100} ${currency} charge=${chargeId}`);
     return;
   }
 

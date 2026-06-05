@@ -16,6 +16,7 @@ import { GradientButton } from '../components/GradientButton';
 import { SecondaryButton } from '../components/SecondaryButton';
 import { AutoGrowTextarea } from '../components/AutoGrowTextarea';
 import { IOSPasteHint } from '../components/IOSPasteHint';
+import { LimitReachedSheet, type LimitReason } from '../components/LimitReachedSheet';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic, selectionHaptic } from '../utils/haptics';
 import {
@@ -159,6 +160,7 @@ export function WingScreen() {
 
   const [contextEnabled, setContextEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [limitSheet, setLimitSheet] = useState<LimitReason | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [_history, setHistory] = useState<HistorySession[]>([]);
 
@@ -275,9 +277,9 @@ export function WingScreen() {
       notificationHaptic('success');
       getAnalysisHistory().then(r => { if (r.ok) setHistory(r.sessions || []); }).catch(() => {});
     } catch (e: any) {
-      // 429 LIMIT_EXCEEDED → paywall
-      if (e instanceof ApiError && e.status === 429 && e.code === 'LIMIT_EXCEEDED') {
-        nav('/paywall');
+      // 429 LIMIT_EXCEEDED → bottom-sheet баннер с опциями апгрейда
+      if (e instanceof ApiError && e.status === 429) {
+        setLimitSheet('limit');
         setLoading(false);
         return;
       }
@@ -744,6 +746,12 @@ export function WingScreen() {
           </div>
         </div>
       )}
+
+      <LimitReachedSheet
+        open={limitSheet != null}
+        reason={limitSheet || 'limit'}
+        onClose={() => setLimitSheet(null)}
+      />
     </Layout>
   );
 }

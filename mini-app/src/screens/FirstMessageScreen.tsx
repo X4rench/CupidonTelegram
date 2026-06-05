@@ -11,6 +11,7 @@ import { GradientButton } from '../components/GradientButton';
 import { SecondaryButton } from '../components/SecondaryButton';
 import { AutoGrowTextarea } from '../components/AutoGrowTextarea';
 import { IOSPasteHint } from '../components/IOSPasteHint';
+import { LimitReachedSheet, type LimitReason } from '../components/LimitReachedSheet';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
 import { generateFirstMessage, ApiError } from '../api';
@@ -29,6 +30,7 @@ export function FirstMessageScreen() {
   const [tags, setTags] = useState<string[]>([]);
   const [profile, setProfile] = useState('');
   const [loading, setLoading] = useState(false);
+  const [limitSheet, setLimitSheet] = useState<LimitReason | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<string[]>([]);
 
@@ -55,7 +57,8 @@ export function FirstMessageScreen() {
       notificationHaptic('success');
     } catch (e: any) {
       if (e instanceof ApiError && e.status === 429) {
-        nav('/paywall', { state: { reason: 'limit' } });
+        setLimitSheet('limit');
+        setLoading(false);
         return;
       }
       setError(e?.message || 'Не удалось сгенерировать. Попробуй ещё раз.');
@@ -139,6 +142,11 @@ export function FirstMessageScreen() {
           </div>
         )}
       </div>
+      <LimitReachedSheet
+        open={limitSheet != null}
+        reason={limitSheet || 'limit'}
+        onClose={() => setLimitSheet(null)}
+      />
     </Layout>
   );
 }

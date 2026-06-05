@@ -127,6 +127,13 @@ const MIGRATIONS = [
       );
     `,
   },
+  // 005 — отдельный лимит на сообщения в симуляторе.
+  // daily_sim_messages / daily_sim_reset_at — дневной счётчик
+  // sim_bonus_quota — bonus-сообщения от Day Pass (накапливаются, не сгорают)
+  {
+    version: '005_simulator_message_limits',
+    sql: null, // спец-обработка ниже
+  },
 ];
 
 /**
@@ -155,6 +162,24 @@ function applyBillingPeriodMigration() {
   }
 }
 
+/**
+ * 005 — отдельный лимит на сообщения в чате симулятора. Идемпотентно
+ * через PRAGMA table_info. Все три колонки добавляются раз.
+ */
+function applySimulatorMessageLimitsMigration() {
+  const cols = db.prepare('PRAGMA table_info(users)').all();
+  const has = (name) => cols.some(c => c.name === name);
+  if (!has('daily_sim_messages')) {
+    db.exec(`ALTER TABLE users ADD COLUMN daily_sim_messages INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!has('daily_sim_reset_at')) {
+    db.exec(`ALTER TABLE users ADD COLUMN daily_sim_reset_at TEXT`);
+  }
+  if (!has('sim_bonus_quota')) {
+    db.exec(`ALTER TABLE users ADD COLUMN sim_bonus_quota INTEGER NOT NULL DEFAULT 0`);
+  }
+}
+
 function isApplied(version) {
   return !!db.prepare('SELECT 1 FROM schema_migrations WHERE version = ?').get(version);
 }
@@ -169,6 +194,8 @@ for (const m of MIGRATIONS) {
       applyTutorialDoneMigration();
     } else if (m.version === '003_subs_billing_period') {
       applyBillingPeriodMigration();
+    } else if (m.version === '005_simulator_message_limits') {
+      applySimulatorMessageLimitsMigration();
     } else if (m.sql) {
       db.exec(m.sql);
     }

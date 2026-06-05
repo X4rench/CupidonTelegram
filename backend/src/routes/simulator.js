@@ -8,7 +8,7 @@ import db, { upsertUserFromInitData } from '../db/index.js';
 import { callAI, parseAIJson } from '../services/polza.js';
 import { validateSimulatorResult } from '../utils/aiSchemas.js';
 import { logAICall } from '../middleware/logger.js';
-import { checkAndIncrementLimit } from '../utils/limits.js';
+import { checkAndIncrementLimit, checkAndIncrementSimLimit } from '../utils/limits.js';
 import { typazhDescFor, typazhNameFor, typazhWarmupFor } from '../utils/typazhes.js';
 
 const router = Router();
@@ -86,6 +86,11 @@ router.post('/message', async (req, res) => {
 
   const session = db.get('SELECT * FROM simulator_sessions WHERE id = ? AND telegram_user_id = ?', sid, req.tgUser.id);
   if (!session) return res.status(404).json({ ok: false, error: 'Сессия не найдена' });
+
+  // Отдельный лимит на сим-сообщения (не пересекается с daily_requests).
+  // ensureUser нужен чтобы получить актуальные daily_sim_messages из БД.
+  const user = ensureUser(req);
+  if (!checkAndIncrementSimLimit(user, res)) return;
 
   const prompt = getPrompt('simulator_chat');
   if (!prompt) return res.status(500).json({ ok: false, error: 'Промпт симулятора не найден' });

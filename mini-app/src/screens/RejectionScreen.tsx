@@ -10,6 +10,7 @@ import { GradientButton } from '../components/GradientButton';
 import { SecondaryButton } from '../components/SecondaryButton';
 import { AutoGrowTextarea } from '../components/AutoGrowTextarea';
 import { IOSPasteHint } from '../components/IOSPasteHint';
+import { LimitReachedSheet, type LimitReason } from '../components/LimitReachedSheet';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
 import { analyzeRejection, ApiError } from '../api';
@@ -29,6 +30,7 @@ export function RejectionScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RejectionResult | null>(null);
+  const [limitSheet, setLimitSheet] = useState<LimitReason | null>(null);
 
   const handleSubmit = async () => {
     if (loading) return;
@@ -47,7 +49,8 @@ export function RejectionScreen() {
       notificationHaptic('success');
     } catch (e: any) {
       if (e instanceof ApiError && e.status === 429) {
-        nav('/paywall', { state: { reason: 'limit' } });
+        setLimitSheet('limit');
+        setLoading(false);
         return;
       }
       setError(e?.message || 'Не удалось разобрать. Попробуй ещё.');
@@ -146,6 +149,11 @@ export function RejectionScreen() {
           </div>
         )}
       </div>
+      <LimitReachedSheet
+        open={limitSheet != null}
+        reason={limitSheet || 'limit'}
+        onClose={() => setLimitSheet(null)}
+      />
     </Layout>
   );
 }

@@ -31,6 +31,8 @@ import { storage } from '../utils/storage';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
 import { findSimTypazhByName, cleanTypazhName } from '../utils/typazhes';
+import { LimitReachedSheet, type LimitReason } from '../components/LimitReachedSheet';
+import { useMe } from '../contexts/MeContext';
 
 interface ChatMsg { from: 'me' | 'her'; text: string }
 interface StoredSession {
@@ -59,6 +61,9 @@ export function SimulatorChatScreen() {
   const typingTimerRef = useRef<number | null>(null);
   const inputRef = useRef<AutoGrowTextareaHandle | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const { refresh: refreshMe } = useMe();
+  const [limitSheet, setLimitSheet] = useState<LimitReason | null>(null);
 
   const [hintsOpen, setHintsOpen] = useState(false);
   const [hints, setHints] = useState<{ type: string; text: string }[]>([]);
@@ -123,8 +128,17 @@ export function SimulatorChatScreen() {
       const res = await sendSimulatorMessage({ sessionId, message: text });
       setMessages(prev => [...prev, { from: 'her', text: res.response }]);
     } catch (e: any) {
-      if (e instanceof ApiError && e.status === 429 && e.code === 'LIMIT_EXCEEDED') {
-        nav('/paywall');
+      if (e instanceof ApiError && e.status === 429) {
+        // Откатим только что добавленное сообщение «from: me» — иначе после
+        // апгрейда история окажется с дубликатом.
+        setMessages(prev => prev.slice(0, -1));
+        setInput(text); // вернём текст в поле ввода
+        if (e.code === 'SIM_LIMIT_EXCEEDED') {
+          setLimitSheet('sim_limit');
+        } else {
+          setLimitSheet('limit');
+        }
+        await refreshMe();
         return;
       }
       setMessages(prev => [...prev, { from: 'her', text: 'Что-то меня сбило, повтори?' }]);
@@ -340,6 +354,12 @@ export function SimulatorChatScreen() {
           )}
         </BottomSheet>
       )}
+
+      <LimitReachedSheet
+        open={limitSheet != null}
+        reason={limitSheet || 'limit'}
+        onClose={() => setLimitSheet(null)}
+      />
     </div>
   );
 }

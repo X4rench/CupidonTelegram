@@ -19,6 +19,16 @@ export const FREE_DAILY_LIMIT    = parseInt(process.env.FREE_DAILY_LIMIT, 10)   
 export const BASIC_DAILY_LIMIT   = parseInt(process.env.BASIC_DAILY_LIMIT, 10)   || 30;
 export const PREMIUM_DAILY_LIMIT = parseInt(process.env.PREMIUM_DAILY_LIMIT, 10) || 100;
 
+// Лимит на сообщения в чате с AI-девушкой в симуляторе (отдельный счётчик).
+// Эти лимиты НЕ пересекаются с daily_requests (Стрела/Разбор/Поддержка/etc).
+// Симуляторный чат — самая «дорогая» по AI-вызовам фича: одно сообщение = 1
+// AI-call к polza.ai. Поэтому считаем отдельно и более жёстко.
+export const FREE_DAILY_SIM_LIMIT    = parseInt(process.env.FREE_DAILY_SIM_LIMIT, 10)    || 5;
+export const BASIC_DAILY_SIM_LIMIT   = parseInt(process.env.BASIC_DAILY_SIM_LIMIT, 10)   || 30;
+export const PREMIUM_DAILY_SIM_LIMIT = parseInt(process.env.PREMIUM_DAILY_SIM_LIMIT, 10) || 60;
+// Day Pass добавляет +N сообщений симулятора (можно покупать многократно).
+export const DAY_PASS_SIM_BONUS      = parseInt(process.env.DAY_PASS_SIM_BONUS, 10)      || 50;
+
 // Идемпотентная миграция: free_trials в TMA — без user_id FK, по telegram_user_id.
 // Уникальная пара (telegram_user_id, feature) гарантирует разовость пробника per-фича.
 db.exec(`
@@ -51,11 +61,18 @@ function todayUTC() {
   return `${y}-${m}-${day}`;
 }
 
-/** Дневной лимит для текущего тира. */
+/** Дневной лимит для текущего тира (общий — Стрела/Разбор/Поддержка/etc). */
 function limitForTier(tier) {
   if (tier === 'premium') return PREMIUM_DAILY_LIMIT;
   if (tier === 'basic')   return BASIC_DAILY_LIMIT;
   return FREE_DAILY_LIMIT;
+}
+
+/** Дневной лимит на сообщения в симуляторе. */
+function simLimitForTier(tier) {
+  if (tier === 'premium') return PREMIUM_DAILY_SIM_LIMIT;
+  if (tier === 'basic')   return BASIC_DAILY_SIM_LIMIT;
+  return FREE_DAILY_SIM_LIMIT;
 }
 
 /**
@@ -121,6 +138,59 @@ export function checkAndIncrementLimit(user, res, feature) {
 }
 
 /**
+ * Проверка и инкремент ОТДЕЛЬНОГО лимита на сообщения в симуляторе.
+ * Используется в POST /simulator/message — каждое сообщение юзера в чат
+ * с AI-девушкой = 1 списанное сообщение.
+ *
+ * Логика:
+ *   1. Если дневной sim-лимит не исчерпан — обычное списание.
+ *   2. Если исчерпан — пробуем sim_bonus_quota (из Day Pass).
+ *   3. Иначе — 429 с указанием reason='sim_limit'.
+ *
+ * @returns {boolean} true (разрешить) или false (уже ответил 429)
+ */
+export function checkAndIncrementSimLimit(user, res) {
+  const tier = getUserTier(user.telegram_user_id);
+  const limit = simLimitForTier(tier);
+  const today = todayUTC();
+  const storedKey = user.daily_sim_reset_at?.slice(0, 10);
+  const used = storedKey === today ? (user.daily_sim_messages || 0) : 0;
+  const wouldBlock = used >= limit;
+
+  if (!wouldBlock) {
+    db.run(
+      `UPDATE users SET daily_sim_messages = ?, daily_sim_reset_at = ? WHERE id = ?`,
+      used + 1, today, user.id
+    );
+    return true;
+  }
+
+  // Лимит исчерпан — пробуем sim_bonus_quota (от Day Pass)
+  const simBonus = user.sim_bonus_quota || 0;
+  if (simBonus > 0) {
+    const r = db.run(
+      `UPDATE users SET sim_bonus_quota = sim_bonus_quota - 1
+        WHERE id = ? AND sim_bonus_quota > 0`,
+      user.id
+    );
+    if (r.changes > 0) return true;
+  }
+
+  res.status(429).json({
+    ok: false,
+    error: `Сообщения симулятора закончились (${limit}/день для ${tier}). Купи Day Pass или улучши подписку.`,
+    code: 'SIM_LIMIT_EXCEEDED',
+    reason: 'sim_limit',
+    used,
+    limit,
+    tier,
+    sim_bonus_quota: simBonus,
+    resets_at: today,
+  });
+  return false;
+}
+
+/**
  * Попытаться использовать бесплатную пробную генерацию в данном режиме.
  * Атомарно через INSERT OR IGNORE — race-safe.
  * Допустимые feature: wing | first_message | rejection | support |
@@ -163,6 +233,12 @@ export function buildLimitInfo(user) {
   const today = todayUTC();
   const storedKey = user.daily_reset_at?.slice(0, 10);
   const used = storedKey === today ? (user.daily_requests || 0) : 0;
+
+  // Отдельный счётчик сим-сообщений
+  const simLimit = simLimitForTier(tier);
+  const simStoredKey = user.daily_sim_reset_at?.slice(0, 10);
+  const simUsed = simStoredKey === today ? (user.daily_sim_messages || 0) : 0;
+
   return {
     tier,
     daily_used:    used,
@@ -170,5 +246,9 @@ export function buildLimitInfo(user) {
     resets_at:     today,
     sub_expires_at: sub?.expires_at ?? null,
     tg_bonus_quota: user.tg_bonus_quota || 0,
+    // Симулятор-сообщения
+    sim_daily_used:   simUsed,
+    sim_daily_limit:  simLimit,
+    sim_bonus_quota:  user.sim_bonus_quota || 0,
   };
 }
