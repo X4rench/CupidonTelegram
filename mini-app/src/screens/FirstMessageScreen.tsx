@@ -99,13 +99,15 @@ export function FirstMessageScreen() {
         </div>
 
         <label style={styles.label}>Что у неё в профиле (опц.)</label>
-        <AutoGrowTextarea
-          value={profile}
-          onChange={setProfile}
-          placeholder="Например: лет 25, учится на дизайнера, любит кофейни, котов и хайкинг…"
-          maxHeight={180}
-          style={{ minHeight: 80 }}
-        />
+        <Card style={{ padding: '8px 12px' }}>
+          <AutoGrowTextarea
+            value={profile}
+            onChange={setProfile}
+            placeholder="Например: лет 25, учится на дизайнера, любит кофейни, котов и хайкинг…"
+            maxHeight={180}
+            style={{ minHeight: 80, padding: 0 }}
+          />
+        </Card>
         <IOSPasteHint />
 
         <div style={{ marginTop: 16 }}>

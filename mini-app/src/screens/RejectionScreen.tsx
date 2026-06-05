@@ -71,13 +71,15 @@ export function RejectionScreen() {
         </p>
 
         <label style={styles.label}>Переписка</label>
-        <AutoGrowTextarea
-          value={text}
-          onChange={setText}
-          placeholder="Я: Привет, как дела?&#10;Она: Норм. А ты что хочешь?&#10;Я: …"
-          maxHeight={300}
-          style={{ minHeight: 140 }}
-        />
+        <Card style={{ padding: '8px 12px' }}>
+          <AutoGrowTextarea
+            value={text}
+            onChange={setText}
+            placeholder="Я: Привет, как дела?&#10;Она: Норм. А ты что хочешь?&#10;Я: …"
+            maxHeight={300}
+            style={{ minHeight: 140, padding: 0 }}
+          />
+        </Card>
         <IOSPasteHint />
 
         <div style={{ marginTop: 16 }}>

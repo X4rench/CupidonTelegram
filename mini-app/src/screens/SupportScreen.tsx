@@ -26,7 +26,6 @@ export function SupportScreen() {
 
   const [situation, setSituation] = useState('');
   const [tags, setTags] = useState<string[]>([]);
-  const [withContext, setWithContext] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<string[]>([]);
@@ -47,7 +46,7 @@ export function SupportScreen() {
     setError(null);
     setResults([]);
     try {
-      const res = await generateSupport({ situationText: trimmed, tags, withContext });
+      const res = await generateSupport({ situationText: trimmed, tags, withContext: false });
       const msgs: string[] = Array.isArray((res as any).responses)
         ? (res as any).responses.map((r: any) => typeof r === 'string' ? r : (r?.text || ''))
         : [];
@@ -81,13 +80,15 @@ export function SupportScreen() {
         </p>
 
         <label style={styles.label}>Что случилось</label>
-        <AutoGrowTextarea
-          value={situation}
-          onChange={setSituation}
-          placeholder="Например: у неё умер кот, она пишет «я не могу», уже два дня не отвечает на звонки"
-          maxHeight={220}
-          style={{ minHeight: 100 }}
-        />
+        <Card style={styles.inputCard}>
+          <AutoGrowTextarea
+            value={situation}
+            onChange={setSituation}
+            placeholder="Например: у неё умер кот, она пишет «я не могу», уже два дня не отвечает на звонки"
+            maxHeight={220}
+            style={{ minHeight: 100, padding: 0 }}
+          />
+        </Card>
         <IOSPasteHint />
 
         <label style={styles.label}>Что у неё (опц.)</label>
@@ -98,16 +99,6 @@ export function SupportScreen() {
             </Chip>
           ))}
         </div>
-
-        <label style={styles.toggleRow} onClick={() => setWithContext(v => !v)}>
-          <input
-            type="checkbox"
-            checked={withContext}
-            onChange={e => setWithContext(e.target.checked)}
-            style={styles.checkbox}
-          />
-          <span style={{ fontSize: 14 }}>Учитывать историю общения (если вы уже близки)</span>
-        </label>
 
         <div style={{ marginTop: 16 }}>
           <GradientButton full loading={loading} onClick={handleSubmit}>
@@ -147,9 +138,8 @@ const styles: Record<string, CSSProperties> = {
   h1:           { margin: 0, fontSize: 24, fontWeight: 700 },
   intro:        { marginTop: 8, color: 'var(--text-muted)', fontSize: 14, lineHeight: 1.5 },
   label:        { display: 'block', marginTop: 20, marginBottom: 8, fontSize: 13, color: 'var(--text-secondary)' },
+  inputCard:    { padding: '8px 12px' },
   tagsRow:      { display: 'flex', flexWrap: 'wrap', gap: 8 },
-  toggleRow:    { display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, color: 'var(--text-primary)', cursor: 'pointer' },
-  checkbox:     { width: 18, height: 18, accentColor: 'var(--accent-primary)' },
   resultsTitle: { fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 },
   resultText:   { margin: 0, fontSize: 15, lineHeight: 1.5, whiteSpace: 'pre-wrap' },
   copyBtn:      { marginTop: 12, padding: '8px 16px', borderRadius: 8, background: 'var(--accent-soft)', color: 'var(--text-accent)', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
