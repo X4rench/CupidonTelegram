@@ -40,6 +40,7 @@ interface StoredSession {
   typazh?: string;
   place?: string;
   type_color?: string;
+  girl_name?: string;
 }
 
 export function SimulatorChatScreen() {
@@ -70,6 +71,10 @@ export function SimulatorChatScreen() {
   const [analysisMsgCount, setAnalysisMsgCount] = useState(-1);
 
   const typazhName = cleanTypazhName(initial?.typazh);
+  const girlName = initial?.girl_name || '';
+  // Имя в шапке: если есть girl_name → «Алиса · Стервозная», иначе просто типаж.
+  const headerLabel = girlName ? `${girlName}` : typazhName;
+  const headerSubLabel = girlName ? typazhName : '';
   const placeName = initial?.place || '';
   const typazhInfo = findSimTypazhByName(typazhName);
   const typeColor = initial?.type_color || typazhInfo?.color || 'rgba(168,85,247';
@@ -205,8 +210,11 @@ export function SimulatorChatScreen() {
           </svg>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={styles.headerName}>{typazhName}</div>
-          <div style={styles.headerSub}>{placeName ? `${placeName} • ` : ''}AI-симуляция</div>
+          <div style={styles.headerName}>{headerLabel}</div>
+          <div style={styles.headerSub}>
+            {headerSubLabel ? `${headerSubLabel} • ` : ''}
+            {placeName ? `${placeName} • ` : ''}AI-симуляция
+          </div>
         </div>
         <button onClick={openAnalysis} style={styles.analyzeBtn}>
           <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="var(--text-accent)" strokeWidth={2}>

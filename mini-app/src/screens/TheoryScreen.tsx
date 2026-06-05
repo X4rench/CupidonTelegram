@@ -204,9 +204,14 @@ export function TheoryScreen() {
                   })}
                 </div>
                 {pollChoice !== null && pollResults && (
-                  <p style={styles.pollResult}>
-                    {pollChoice === 0 ? pollResults.a : pollResults.b}
-                  </p>
+                  <>
+                    <p style={styles.pollResult}>
+                      {pollChoice === 0 ? pollResults.a : pollResults.b}
+                    </p>
+                    <p style={styles.pollHintMuted}>
+                      Передумал? Нажми на другой вариант — голос обновится.
+                    </p>
+                  </>
                 )}
                 {pollChoice === null && (
                   <p style={styles.pollHint}>Выбери вариант и я покажу анализ обоих.</p>
@@ -388,6 +393,7 @@ const styles: Record<string, CSSProperties> = {
   pollText: { fontSize: 13, color: 'var(--text-primary)', textAlign: 'center' },
   pollResult: { margin: '12px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--text-muted)' },
   pollHint: { margin: '12px 0 0', fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' },
+  pollHintMuted: { margin: '6px 0 0', fontSize: 11, color: 'var(--text-muted)', opacity: 0.7 },
 
   quote: { margin: 0, fontSize: 18, fontWeight: 700, lineHeight: '25px', color: 'var(--text-primary)', marginBottom: 8 },
   quoteMeta: { fontSize: 12, color: 'var(--text-muted)' },

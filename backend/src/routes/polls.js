@@ -41,7 +41,11 @@ router.get('/today', (req, res) => {
   });
 });
 
-// POST /api/v1/polls/:id/vote — записать голос
+// POST /api/v1/polls/:id/vote — записать или поменять голос
+// Переголосование разрешено: ON CONFLICT DO UPDATE. Защита от спама —
+// global rate-limit (30 запросов/мин на юзера) + DB-уровень throttle:
+// один UPDATE стоит копейки, накручивать статистику бессмысленно
+// т.к. голос всегда один (последний). База от тычков не упадёт.
 router.post('/:id/vote', (req, res) => {
   const pollId = parseInt(req.params.id, 10);
   const { choice } = req.body;
@@ -52,11 +56,11 @@ router.post('/:id/vote', (req, res) => {
   const poll = db.get('SELECT * FROM polls WHERE id = ?', pollId);
   if (!poll) return res.status(404).json({ ok: false, error: 'Опрос не найден' });
 
-  // TMA3 — голос пользователя фиксируется один раз; повторный POST не меняет
-  // выбор (защита от накручивания статистики через перевыбор).
+  // UPSERT: первый голос — INSERT, последующие — UPDATE с новым choice.
+  // Юзер видит обновлённый счётчик мгновенно.
   db.run(
     `INSERT INTO poll_votes (poll_id, telegram_user_id, choice) VALUES (?, ?, ?)
-     ON CONFLICT(poll_id, telegram_user_id) DO NOTHING`,
+     ON CONFLICT(poll_id, telegram_user_id) DO UPDATE SET choice = excluded.choice`,
     pollId, req.tgUser.id, choice
   );
 

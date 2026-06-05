@@ -21,6 +21,7 @@ interface SimDialog {
   lastMsg: string;
   difficulty?: number;
   color: string;
+  girlName?: string;
 }
 
 const GRADIENT_POOL: [string, string][] = [
@@ -74,6 +75,7 @@ export function AllDialogsScreen() {
           storageKey: `sim_session_${suffix}`,
           sessionId: data.session_id,
           typazh,
+          girlName: data.girl_name,
           place,
           lastMsg: lastHer?.text || lastAny?.text || '',
           difficulty: data.difficulty,
@@ -96,6 +98,7 @@ export function AllDialogsScreen() {
     const q = search.toLowerCase();
     return simDialogs.filter(d =>
       d.typazh.toLowerCase().includes(q) ||
+      (d.girlName || '').toLowerCase().includes(q) ||
       d.lastMsg.toLowerCase().includes(q),
     );
   }, [simDialogs, search]);
@@ -183,7 +186,7 @@ export function AllDialogsScreen() {
             {simFiltered.map((d, i) => (
               <DialogRow
                 key={d.storageKey}
-                title={d.typazh}
+                title={d.girlName ? `${d.girlName} · ${d.typazh}` : d.typazh}
                 subtitle={d.place || 'AI-симуляция'}
                 lastMsg={d.lastMsg}
                 gradient={GRADIENT_POOL[i % GRADIENT_POOL.length]}

@@ -146,12 +146,16 @@ export function HomeScreen() {
           const typazhRaw = underIdx > 0 ? suffix.slice(0, underIdx) : suffix;
           const typazh = cleanTypazhName(data.typazh || typazhRaw);
           const place  = underIdx > 0 ? suffix.slice(underIdx + 1) : '';
+          const girlName: string | undefined = data.girl_name;
+          // Title: «Алиса · Стервозная» если есть имя, иначе просто «Стервозная»
+          const title = girlName ? `${girlName} · ${typazh}` : typazh;
+          const initialChar = (girlName || typazh).trim().slice(0, 1).toUpperCase() || '?';
           dialogs.push({
             kind: 'sim',
-            title: typazh,
+            title,
             subtitle: place ? `Симулятор · ${place}` : 'Симулятор',
             to: `/simulator/chat/${encodeURIComponent(data.session_id)}?key=${encodeURIComponent('sim_session_' + suffix)}`,
-            initial: (typazh.trim() || '?').slice(0, 1).toUpperCase(),
+            initial: initialChar,
             gradient: GRAD_POOL[(dialogs.length + 2) % GRAD_POOL.length],
           });
         } catch (_) {}

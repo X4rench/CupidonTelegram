@@ -24,6 +24,7 @@ import {
   type SimTypazh,
 } from '../utils/typazhes';
 import { loadCustomGirls, removeCustomGirl, type CustomGirl } from '../utils/customGirls';
+import { pickGirlName } from '../utils/girlNames';
 
 interface SavedSimSession {
   session_id: string;
@@ -31,6 +32,15 @@ interface SavedSimSession {
   difficulty?: number;
   typazh?: string;
   place?: string;
+  /** Имя девушки (для нескольких сессий с одним типажом). */
+  girl_name?: string;
+}
+
+interface ExistingSimInfo {
+  storageKey: string;       // 'sim_session_<...>'
+  sessionId: string;
+  girlName: string | null;
+  lastMessage: string;
 }
 
 export function SimulatorScreen() {
@@ -60,7 +70,7 @@ export function SimulatorScreen() {
   const finalPlace = isCustomPlace ? (customPlace.trim() || 'другое место') : selectedPlace;
 
   // Список незавершённых сессий
-  const [savedSessions, setSavedSessions] = useState<{ key: string; typazh: string; place: string; lastMsg: string; difficulty?: number; sessionId: string }[]>([]);
+  const [savedSessions, setSavedSessions] = useState<{ key: string; typazh: string; place: string; lastMsg: string; difficulty?: number; sessionId: string; girlName?: string }[]>([]);
   useEffect(() => {
     const out: typeof savedSessions = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -85,6 +95,7 @@ export function SimulatorScreen() {
         out.push({
           key: `sim_session_${suffix}`,
           typazh,
+          girlName: data.girl_name,
           place,
           lastMsg: lastHer?.text || msgs[msgs.length - 1]?.text || '',
           difficulty: data.difficulty,
@@ -101,21 +112,90 @@ export function SimulatorScreen() {
     if (selectedTypeIdx >= TYPAZHES_SIM.length) setSelectedTypeIdx(0);
   };
 
-  const start = async () => {
-    if (starting) return;
-    setStarting(true);
-    setErrMsg(null);
-    try {
-      const isCustom = selectedTypeIdx >= TYPAZHES_SIM.length;
-      const typazhKey = isCustom
-        ? (selectedType as CustomGirl & { isCustom: true }).typazh || (selectedType as any).name
-        : (selectedType as SimTypazh).name;
+  // Модалка «у тебя уже есть диалог»
+  const [existingDialog, setExistingDialog] = useState<ExistingSimInfo | null>(null);
 
+  /** Найти активную сессию с тем же типажом. Возвращает первую совпавшую. */
+  const findExistingSession = (typazhKey: string): ExistingSimInfo | null => {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      const m = /^cupidon:[^:]+:sim_session_(.+)$/.exec(k);
+      if (!m) continue;
+      try {
+        const raw = localStorage.getItem(k);
+        if (!raw) continue;
+        const data = JSON.parse(raw) as SavedSimSession;
+        if (!data.messages?.length) continue;
+        if ((data.typazh || '').toLowerCase() !== typazhKey.toLowerCase()) continue;
+        const lastHer = [...data.messages].reverse().find(mm => mm.from === 'her');
+        const lastMsg = lastHer?.text || data.messages[data.messages.length - 1]?.text || '';
+        return {
+          storageKey: `sim_session_${m[1]}`,
+          sessionId: data.session_id,
+          girlName: data.girl_name || null,
+          lastMessage: lastMsg,
+        };
+      } catch (_) {}
+    }
+    return null;
+  };
+
+  /** Собрать все уже использованные имена девушек — чтобы не дублировать. */
+  const collectUsedGirlNames = (): string[] => {
+    const out: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !/^cupidon:[^:]+:sim_session_/.test(k)) continue;
+      try {
+        const data = JSON.parse(localStorage.getItem(k) || '{}') as SavedSimSession;
+        if (data.girl_name) out.push(data.girl_name);
+      } catch (_) {}
+    }
+    return out;
+  };
+
+  /** Запустить симуляцию. forceNew=true → пропускает проверку дубля. */
+  const start = async (forceNew = false) => {
+    if (starting) return;
+    setExistingDialog(null);
+    setErrMsg(null);
+
+    const isCustom = selectedTypeIdx >= TYPAZHES_SIM.length;
+    const typazhKey = isCustom
+      ? (selectedType as CustomGirl & { isCustom: true }).typazh || (selectedType as any).name
+      : (selectedType as SimTypazh).name;
+
+    // Проверка: если уже есть активная сессия с этим типажом —
+    // спросить юзера что делать (если не forceNew).
+    if (!forceNew) {
+      const existing = findExistingSession(typazhKey);
+      if (existing) {
+        impactHaptic('light');
+        setExistingDialog(existing);
+        return;
+      }
+    }
+
+    setStarting(true);
+    try {
       const res = await startSimulator({ typazh: typazhKey, place: finalPlace, difficulty });
       notificationHaptic('success');
 
-      // Сохраним стартовые параметры в storage — экран чата подхватит
-      const key = `sim_session_${typazhKey}_${finalPlace}`;
+      // Если есть другая сессия с тем же типажом без имени — дадим имя обеим:
+      // существующей даём имя ретроактивно (чтобы юзер не путался в списке).
+      const usedNames = collectUsedGirlNames();
+      let girlName: string | undefined;
+      if (forceNew) {
+        // Это вторая+ сессия — точно даём имя
+        girlName = pickGirlName(usedNames);
+        // Дать имя и старой сессии если у неё имени не было
+        renameLegacySessionsIfNeeded(typazhKey, usedNames);
+      }
+      // Если это первая сессия — без имени, просто показываем «Стервозная».
+
+      // Уникальный storage key через sessionId — никогда не перетирает чужие.
+      const key = `sim_session_${typazhKey}_${finalPlace}_${res.session_id}`;
       storage.set(key, {
         session_id: res.session_id,
         messages: res.opening_message ? [{ from: 'her', text: res.opening_message }] : [],
@@ -123,6 +203,7 @@ export function SimulatorScreen() {
         typazh: typazhKey,
         place: finalPlace,
         type_color: (selectedType as SimTypazh).color || 'rgba(168,85,247',
+        ...(girlName ? { girl_name: girlName } : {}),
       });
 
       nav(`/simulator/chat/${encodeURIComponent(res.session_id)}?key=${encodeURIComponent(key)}`);
@@ -134,6 +215,38 @@ export function SimulatorScreen() {
       setErrMsg(e?.message || 'Не удалось стартовать симуляцию');
     } finally {
       setStarting(false);
+    }
+  };
+
+  /** Если у legacy-сессий (без girl_name) есть совпадение по typazh —
+      дать им имя из пула. Делаем для всех matching без имени.  */
+  const renameLegacySessionsIfNeeded = (typazhKey: string, usedNames: string[]) => {
+    const namesToUse = [...usedNames];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !/^cupidon:[^:]+:sim_session_/.test(k)) continue;
+      try {
+        const data = JSON.parse(localStorage.getItem(k) || '{}') as SavedSimSession;
+        if (data.girl_name) continue;
+        if ((data.typazh || '').toLowerCase() !== typazhKey.toLowerCase()) continue;
+        const name = pickGirlName(namesToUse);
+        data.girl_name = name;
+        namesToUse.push(name);
+        localStorage.setItem(k, JSON.stringify(data));
+      } catch (_) {}
+    }
+  };
+
+  /** Удалить указанную storage-сессию (после подтверждения юзера). */
+  const deleteSession = (storageKey: string) => {
+    // storageKey формата 'sim_session_<...>' (без префикса cupidon:<tg>:)
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (k.endsWith(':' + storageKey)) {
+        try { localStorage.removeItem(k); } catch (_) {}
+        return;
+      }
     }
   };
 
@@ -243,7 +356,7 @@ export function SimulatorScreen() {
         )}
 
         <div style={{ marginTop: 16 }}>
-          <GradientButton onClick={start} loading={starting} disabled={starting} full>
+          <GradientButton onClick={() => start(false)} loading={starting} disabled={starting} full>
             Начать диалог
           </GradientButton>
         </div>
@@ -257,7 +370,7 @@ export function SimulatorScreen() {
                   onClick={() => nav(`/simulator/chat/${encodeURIComponent(s.sessionId)}?key=${encodeURIComponent(s.key)}`)}
                 >
                   <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-                    {s.typazh} {s.place ? `• ${s.place}` : ''}
+                    {s.girlName ? `${s.girlName} · ` : ''}{s.typazh} {s.place ? `• ${s.place}` : ''}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.lastMsg}
@@ -270,9 +383,143 @@ export function SimulatorScreen() {
 
         <div style={{ height: 24 }} />
       </div>
+
+      {/* Модалка «У тебя уже есть диалог с этим типажом» */}
+      {existingDialog && (
+        <ExistingDialogModal
+          info={existingDialog}
+          typazh={(selectedType as any).name}
+          onContinue={() => {
+            const e = existingDialog;
+            setExistingDialog(null);
+            if (!e) return;
+            nav(`/simulator/chat/${encodeURIComponent(e.sessionId)}?key=${encodeURIComponent(e.storageKey)}`);
+          }}
+          onNew={() => { setExistingDialog(null); start(true); }}
+          onDelete={() => {
+            const e = existingDialog;
+            if (!e) return;
+            if (!window.confirm('Удалить тот диалог и начать новый?')) return;
+            deleteSession(e.storageKey);
+            setExistingDialog(null);
+            start(true);
+          }}
+          onClose={() => setExistingDialog(null)}
+        />
+      )}
     </Layout>
   );
 }
+
+interface ExistingDialogModalProps {
+  info: ExistingSimInfo;
+  typazh: string;
+  onContinue: () => void;
+  onNew: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}
+
+function ExistingDialogModal({ info, typazh, onContinue, onNew, onDelete, onClose }: ExistingDialogModalProps) {
+  const label = info.girlName ? `${info.girlName} (${typazh})` : typazh;
+  return (
+    <div style={modalStyles.backdrop} onClick={onClose}>
+      <div style={modalStyles.sheet} onClick={e => e.stopPropagation()}>
+        <div style={modalStyles.title}>У тебя уже есть диалог</div>
+        <div style={modalStyles.sub}>
+          <b>{label}</b>
+          {info.lastMessage && (
+            <div style={modalStyles.preview}>
+              «{info.lastMessage.length > 80 ? info.lastMessage.slice(0, 80) + '…' : info.lastMessage}»
+            </div>
+          )}
+        </div>
+        <button onClick={onContinue} style={modalStyles.primaryBtn}>
+          Продолжить с ней
+        </button>
+        <button onClick={onNew} style={modalStyles.secondaryBtn}>
+          Новая девушка с тем же типажом
+        </button>
+        <button onClick={onDelete} style={modalStyles.dangerBtn}>
+          Удалить тот диалог и начать заново
+        </button>
+        <button onClick={onClose} style={modalStyles.cancelBtn}>
+          Отмена
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const modalStyles: Record<string, CSSProperties> = {
+  backdrop: {
+    position: 'fixed', inset: 0,
+    background: 'rgba(0,0,0,0.6)',
+    display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+    zIndex: 100,
+  },
+  sheet: {
+    width: '100%', maxWidth: 480,
+    background: 'var(--bg-card)',
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 'calc(20px + var(--safe-bottom))',
+    display: 'flex', flexDirection: 'column', gap: 10,
+  },
+  title: {
+    fontSize: 18, fontWeight: 700,
+    color: 'var(--text-primary)',
+  },
+  sub: {
+    fontSize: 13, lineHeight: '18px',
+    color: 'var(--text-secondary)',
+    marginBottom: 4,
+  },
+  preview: {
+    marginTop: 6,
+    padding: '6px 10px',
+    background: 'var(--bg-elevated)',
+    borderRadius: 8,
+    fontSize: 12,
+    color: 'var(--text-muted)',
+    fontStyle: 'italic',
+  },
+  primaryBtn: {
+    padding: '14px',
+    borderRadius: 12,
+    background: 'var(--gradient-accent)',
+    color: '#fff',
+    border: 0,
+    fontSize: 14, fontWeight: 700,
+    cursor: 'pointer',
+  },
+  secondaryBtn: {
+    padding: '14px',
+    borderRadius: 12,
+    background: 'var(--bg-elevated)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--border-default)',
+    fontSize: 14, fontWeight: 600,
+    cursor: 'pointer',
+  },
+  dangerBtn: {
+    padding: '14px',
+    borderRadius: 12,
+    background: 'transparent',
+    color: 'var(--status-negative)',
+    border: '1px solid rgba(239,68,68,0.3)',
+    fontSize: 13, fontWeight: 600,
+    cursor: 'pointer',
+  },
+  cancelBtn: {
+    padding: '10px',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    border: 0,
+    fontSize: 13,
+    cursor: 'pointer',
+  },
+};
 
 function Section({ title, children }: { title: string; children: any }) {
   return (
