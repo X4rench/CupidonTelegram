@@ -23,6 +23,7 @@ export const TYPAZHES: string[] = [
   'Альфа',
   'Заботливая',
   'Эмоциональная',
+  'Пошлая',
 ];
 
 export function csvToList(s: string | null | undefined): string[] {
@@ -59,6 +60,7 @@ export const TYPAZHES_SIM: SimTypazh[] = [
   { name: 'Альфа',          sub: 'Сама ведёт',               color: 'rgba(124,58,237' },
   { name: 'Заботливая',     sub: 'Тёплая и мягкая',          color: 'rgba(20,184,166' },
   { name: 'Эмоциональная',  sub: 'Бурная и живая',           color: 'rgba(217,70,239' },
+  { name: 'Пошлая',         sub: 'Игривая, без табу',        color: 'rgba(219,39,119' },
 ];
 
 export const CUSTOM_PLACE_ID = 'custom';
