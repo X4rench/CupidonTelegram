@@ -296,7 +296,7 @@ export function SimulatorChatScreen() {
       {hintsOpen && (
         <BottomSheet title="Подсказки" subtitle="Тапни вариант — он подставится в инпут" onClose={() => setHintsOpen(false)}>
           {hintsLoading ? (
-            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>Генерирую варианты...</div>
+            <LoadingDots text="Подбираю варианты" />
           ) : hints.length === 0 ? (
             <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
               Напиши хотя бы одно сообщение — и я предложу варианты ответа на её ход.
@@ -320,7 +320,7 @@ export function SimulatorChatScreen() {
           onClose={() => setAnalysisOpen(false)}
         >
           {analysisLoading ? (
-            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>Анализирую диалог...</div>
+            <LoadingDots text="Анализирую диалог" />
           ) : messages.length < 2 ? (
             <Card>
               <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>
@@ -365,6 +365,40 @@ export function SimulatorChatScreen() {
 }
 
 // ── Bottom-sheet helper (для hints/analysis) ──────────────────────────────────
+/**
+ * Заголовок + три прыгающие точки. Показывается пока AI генерит ответ
+ * (подсказки, разбор). Юзер видит что система работает — не «всё зависло».
+ * CSS keyframes inline, чтобы не лезть в глобальные стили.
+ */
+function LoadingDots({ text }: { text: string }) {
+  return (
+    <div style={{
+      padding: '32px 24px',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      gap: 14,
+    }}>
+      <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>{text}</div>
+      <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+        <span className="loadingDot" style={{ animationDelay: '0s' }} />
+        <span className="loadingDot" style={{ animationDelay: '0.18s' }} />
+        <span className="loadingDot" style={{ animationDelay: '0.36s' }} />
+        <style>{`
+          .loadingDot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--accent-primary);
+            display: inline-block;
+            animation: loadingBounce 1s ease-in-out infinite;
+          }
+          @keyframes loadingBounce {
+            0%, 80%, 100% { transform: translateY(0) scale(0.7); opacity: 0.45; }
+            40%           { transform: translateY(-8px) scale(1); opacity: 1; }
+          }
+        `}</style>
+      </span>
+    </div>
+  );
+}
+
 function BottomSheet({ title, subtitle, onClose, children }: {
   title: string;
   subtitle?: string;
