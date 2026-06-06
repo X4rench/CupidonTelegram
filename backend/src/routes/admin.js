@@ -543,57 +543,117 @@ router.get('/users/:tgId', (req, res) => {
 // Выдать подписку юзеру. body: { plan: 'basic'|'premium', days: 30 }
 // Действия логируются в admin_audit_log для compliance.
 router.post('/users/:tgId/grant-subscription', (req, res) => {
-  const tgId = parseInt(req.params.tgId, 10);
-  if (!Number.isFinite(tgId)) return res.status(400).json({ ok: false, error: 'Невалидный TG ID' });
+  try {
+    const tgId = parseInt(req.params.tgId, 10);
+    if (!Number.isFinite(tgId)) return res.status(400).json({ ok: false, error: 'Невалидный TG ID' });
 
-  const { plan, days } = req.body || {};
-  if (!['basic', 'premium', 'day_pass'].includes(plan)) {
-    return res.status(400).json({ ok: false, error: "plan должен быть 'basic', 'premium' или 'day_pass'" });
-  }
-  const n = parseInt(days, 10);
-  if (!Number.isFinite(n) || n < 1 || n > 365) {
-    return res.status(400).json({ ok: false, error: 'days должен быть от 1 до 365' });
-  }
+    const { plan, days } = req.body || {};
+    if (!['basic', 'premium', 'day_pass'].includes(plan)) {
+      return res.status(400).json({ ok: false, error: "plan должен быть 'basic', 'premium' или 'day_pass'" });
+    }
+    const n = parseInt(days, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 365) {
+      return res.status(400).json({ ok: false, error: 'days должен быть от 1 до 365' });
+    }
 
-  const user = db.get('SELECT id FROM users WHERE telegram_user_id = ?', tgId);
-  if (!user) return res.status(404).json({ ok: false, error: 'Юзер не найден. Он должен сначала открыть Mini App.' });
+    const user = db.get('SELECT id FROM users WHERE telegram_user_id = ?', tgId);
+    if (!user) return res.status(404).json({ ok: false, error: 'Юзер не найден. Он должен сначала открыть Mini App.' });
 
-  // Продлеваем от max(now, current_expires) чтобы не сбросить активную подписку
-  const existing = db.get(
-    `SELECT expires_at FROM subscriptions WHERE telegram_user_id = ? AND datetime(expires_at) > datetime('now')
-     ORDER BY datetime(expires_at) DESC LIMIT 1`,
-    tgId
-  );
-  const base = existing?.expires_at && new Date(existing.expires_at) > new Date()
-    ? new Date(existing.expires_at)
-    : new Date();
-  const newExpires = new Date(base.getTime() + n * 86_400_000).toISOString();
+    // ── Day Pass: начисляем bonus_quota как при покупке через YooKassa,
+    // НЕ создаём subscription (это бонус, не подписка). days игнорируется —
+    // у Day Pass свой TTL 24ч из bonus_expires_at.
+    if (plan === 'day_pass') {
+      const DAY_PASS_BONUS_QUOTA = parseInt(process.env.DAY_PASS_BONUS_QUOTA, 10) || 100;
+      const DAY_PASS_SIM_BONUS   = parseInt(process.env.DAY_PASS_SIM_BONUS, 10)   || 50;
 
-  db.transaction(() => {
-    db.run(
-      `INSERT INTO subscriptions (telegram_user_id, plan, source, started_at, expires_at, is_trial, auto_renew)
-       VALUES (?, ?, 'admin_grant', datetime('now'), ?, 0, 0)`,
-      tgId, plan, newExpires
-    );
-    db.run(
-      `UPDATE users SET sub_tier = ?, sub_expires_at = ? WHERE telegram_user_id = ?`,
-      plan === 'premium' ? 'premium' : 'basic',
-      newExpires,
+      const u = db.get(
+        `SELECT tg_bonus_quota, sim_bonus_quota, bonus_expires_at
+           FROM users WHERE telegram_user_id = ?`,
+        tgId,
+      );
+      const expIso = u?.bonus_expires_at;
+      const activeNow = expIso && Date.parse(
+        /[Zz]|[+\-]\d\d:?\d\d$/.test(expIso) ? expIso : expIso.replace(' ', 'T') + 'Z'
+      ) > Date.now();
+      const baseTg  = activeNow ? (u?.tg_bonus_quota  || 0) : 0;
+      const baseSim = activeNow ? (u?.sim_bonus_quota || 0) : 0;
+      // n = количество «дней» от админа = количество начисляемых пакетов
+      // (например days=1 → +100 запросов, days=3 → +300 запросов)
+      const newTg     = baseTg  + DAY_PASS_BONUS_QUOTA * n;
+      const newSim    = baseSim + DAY_PASS_SIM_BONUS   * n;
+      const newExpAt  = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+      db.transaction(() => {
+        db.run(
+          `UPDATE users
+             SET tg_bonus_quota   = ?,
+                 sim_bonus_quota  = ?,
+                 bonus_expires_at = ?
+           WHERE telegram_user_id = ?`,
+          newTg, newSim, newExpAt, tgId,
+        );
+        db.run(
+          `INSERT INTO admin_audit_log (action, ip, user_agent, details) VALUES (?, ?, ?, ?)`,
+          'grant_day_pass',
+          req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown',
+          req.headers['user-agent'] || 'unknown',
+          JSON.stringify({ admin_tg: req.tgUser?.id || 'cli', target_tg: tgId, packs: n, new_tg_quota: newTg, new_sim_quota: newSim }),
+        );
+      })();
+
+      console.log(`[admin] grant_day_pass: admin=${req.tgUser?.id || 'cli'} target=${tgId} packs=${n} tg_quota=${newTg} sim_quota=${newSim}`);
+      return res.json({ ok: true, plan: 'day_pass', packs: n, tg_bonus_quota: newTg, sim_bonus_quota: newSim, bonus_expires_at: newExpAt });
+    }
+
+    // ── Basic / Premium: создаём subscription
+    // Продлеваем от max(now, current_expires) чтобы не сбросить активную подписку
+    const existing = db.get(
+      `SELECT expires_at FROM subscriptions WHERE telegram_user_id = ? AND datetime(expires_at) > datetime('now')
+       ORDER BY datetime(expires_at) DESC LIMIT 1`,
       tgId
     );
-    // Audit-лог
-    const adminTgId = req.tgUser?.id || 'cli';
-    db.run(
-      `INSERT INTO admin_audit_log (action, ip, user_agent, details) VALUES (?, ?, ?, ?)`,
-      'grant_subscription',
-      req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown',
-      req.headers['user-agent'] || 'unknown',
-      JSON.stringify({ admin_tg: adminTgId, target_tg: tgId, plan, days: n, new_expires: newExpires }),
-    );
-  })();
+    // Защитный парсинг — если в БД invalid date, не упасть на toISOString
+    const baseDate = (() => {
+      if (existing?.expires_at) {
+        const d = new Date(existing.expires_at.replace(' ', 'T') + (/[Zz]|[+\-]\d\d:?\d\d$/.test(existing.expires_at) ? '' : 'Z'));
+        if (!Number.isNaN(d.getTime()) && d > new Date()) return d;
+      }
+      return new Date();
+    })();
+    const newExpires = new Date(baseDate.getTime() + n * 86_400_000).toISOString();
 
-  console.log(`[admin] grant_subscription: admin=${req.tgUser?.id || 'cli'} target=${tgId} plan=${plan} days=${n}`);
-  res.json({ ok: true, plan, days: n, expires_at: newExpires });
+    db.transaction(() => {
+      db.run(
+        `INSERT INTO subscriptions (telegram_user_id, plan, source, started_at, expires_at, is_trial, auto_renew)
+         VALUES (?, ?, 'admin_grant', datetime('now'), ?, 0, 0)`,
+        tgId, plan, newExpires
+      );
+      db.run(
+        `UPDATE users SET sub_tier = ?, sub_expires_at = ? WHERE telegram_user_id = ?`,
+        plan === 'premium' ? 'premium' : 'basic',
+        newExpires,
+        tgId
+      );
+      // Audit-лог
+      const adminTgId = req.tgUser?.id || 'cli';
+      db.run(
+        `INSERT INTO admin_audit_log (action, ip, user_agent, details) VALUES (?, ?, ?, ?)`,
+        'grant_subscription',
+        req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown',
+        req.headers['user-agent'] || 'unknown',
+        JSON.stringify({ admin_tg: adminTgId, target_tg: tgId, plan, days: n, new_expires: newExpires }),
+      );
+    })();
+
+    console.log(`[admin] grant_subscription: admin=${req.tgUser?.id || 'cli'} target=${tgId} plan=${plan} days=${n}`);
+    res.json({ ok: true, plan, days: n, expires_at: newExpires });
+  } catch (err) {
+    console.error('[admin] grant-subscription error:', err);
+    res.status(500).json({
+      ok: false,
+      error: 'Не удалось выдать подписку: ' + (err?.message || 'unknown'),
+    });
+  }
 });
 
 // ── POST /api/v1/admin/users/:tgId/revoke-subscription ──────────────────────
