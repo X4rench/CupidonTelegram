@@ -14,7 +14,6 @@ import { Layout } from '../components/Layout';
 import { Card } from '../components/Card';
 import { Chip } from '../components/Chip';
 import { GradientButton } from '../components/GradientButton';
-import { SecondaryButton } from '../components/SecondaryButton';
 import { AutoGrowTextarea } from '../components/AutoGrowTextarea';
 import { LimitReachedSheet, type LimitReason } from '../components/LimitReachedSheet';
 import { useBackButton } from '../utils/backButton';
@@ -48,6 +47,7 @@ export function FirstMessageScreen() {
 
   const toggleTag = (t: string) => {
     selectionHaptic();
+    setError(null);
     setTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
   };
 
@@ -64,6 +64,19 @@ export function FirstMessageScreen() {
 
   const handleSubmit = async () => {
     if (loading) return;
+
+    // Валидация: нужно хотя бы что-то ввести. Иначе бэк отвалится на
+    // пустом контексте (AI ловит таймаут → 502 от nginx). Показываем
+    // дружелюбное сообщение вместо технической ошибки.
+    const hasName = girlName.trim().length > 0;
+    const hasTags = tags.length > 0;
+    const hasProfile = profile.trim().length > 0;
+    if (!hasName && !hasTags && !hasProfile) {
+      setError('Расскажи о ней хоть что-то: выбери что её интересует, напиши имя или опиши её профиль. Иначе AI не из чего лепить сообщение.');
+      notificationHaptic('error');
+      return;
+    }
+
     impactHaptic('medium');
     setLoading(true);
     setError(null);
@@ -79,6 +92,12 @@ export function FirstMessageScreen() {
       const msgs: string[] = Array.isArray((res as any).messages)
         ? (res as any).messages.map((m: any) => typeof m === 'string' ? m : (m?.text || ''))
         : [];
+      if (msgs.filter(Boolean).length === 0) {
+        // AI вернул пустоту — обычно это значит входных данных не хватило
+        setError('AI не справился с такими исходными. Попробуй добавить тегов или подробнее описать профиль.');
+        notificationHaptic('error');
+        return;
+      }
       setResults(msgs.filter(Boolean));
       notificationHaptic('success');
     } catch (e: any) {
@@ -87,11 +106,23 @@ export function FirstMessageScreen() {
         setLoading(false);
         return;
       }
-      setError(e?.message || 'Не удалось сгенерировать. Попробуй ещё раз.');
+      // Дружелюбные сообщения для типичных серверных ошибок (не «HTTP 502»)
+      let msg = e?.message || 'Не удалось сгенерировать. Попробуй ещё раз.';
+      if (e instanceof ApiError) {
+        if (e.status >= 500) msg = 'AI сейчас занят или сломался. Попробуй через минуту — или добавь больше деталей о ней.';
+        else if (e.status === 400) msg = 'AI не понял запрос. Опиши её подробнее.';
+      }
+      setError(msg);
       notificationHaptic('error');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Сбрасываем error когда юзер начал что-то менять — чтобы красная плашка
+  // не висела после исправления.
+  const clearErrorOnChange = () => {
+    if (error) setError(null);
   };
 
   const onRegenerate = () => {
@@ -130,7 +161,7 @@ export function FirstMessageScreen() {
         <label style={styles.label}>Её имя (опц.)</label>
         <input
           value={girlName}
-          onChange={e => setGirlName(e.target.value)}
+          onChange={e => { setGirlName(e.target.value); clearErrorOnChange(); }}
           placeholder="Например, Аня"
           style={styles.input}
           maxLength={30}
@@ -164,7 +195,7 @@ export function FirstMessageScreen() {
         <Card style={{ padding: '8px 12px' }}>
           <AutoGrowTextarea
             value={profile}
-            onChange={setProfile}
+            onChange={v => { setProfile(v); clearErrorOnChange(); }}
             placeholder="Например: лет 25, учится на дизайнера, любит кофейни, котов и хайкинг…"
             maxHeight={180}
             style={{ minHeight: 80, padding: 0 }}
@@ -182,12 +213,10 @@ export function FirstMessageScreen() {
         )}
 
         {error && (
-          <Card style={{ marginTop: 16, borderColor: 'var(--status-negative)' }}>
-            <p style={{ margin: 0, color: 'var(--status-negative)', fontSize: 14 }}>{error}</p>
-            <div style={{ marginTop: 12 }}>
-              <SecondaryButton onClick={handleSubmit}>Попробовать ещё</SecondaryButton>
-            </div>
-          </Card>
+          <div style={styles.errorBox}>
+            <span style={styles.errorIcon}>ⓘ</span>
+            <p style={styles.errorText}>{error}</p>
+          </div>
         )}
 
         {hasResults && (
@@ -318,6 +347,30 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 16,
     fontSize: 13, fontWeight: 500,
     cursor: 'pointer',
+  },
+
+  // Мягкая подсказка-ошибка (тёплый янтарь, не паника-красный)
+  errorBox: {
+    marginTop: 14,
+    display: 'flex', alignItems: 'flex-start', gap: 10,
+    padding: '12px 14px',
+    background: 'rgba(245, 158, 11, 0.10)',
+    border: '1px solid rgba(245, 158, 11, 0.30)',
+    borderRadius: 12,
+  },
+  errorIcon: {
+    flexShrink: 0,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    width: 20, height: 20,
+    borderRadius: '50%',
+    background: 'rgba(245, 158, 11, 0.20)',
+    color: 'var(--status-warning, #F59E0B)',
+    fontSize: 12, fontWeight: 700,
+  },
+  errorText: {
+    margin: 0, flex: 1,
+    fontSize: 13, lineHeight: '18px',
+    color: 'var(--text-secondary)',
   },
 
   resultsHeader: {
