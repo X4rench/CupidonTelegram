@@ -42,6 +42,32 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_free_trials_user ON free_trials(telegram_user_id);
 `);
 
+/**
+ * Lazy-expire бонусов от Day Pass. Если bonus_expires_at < now —
+ * обнуляем tg_bonus_quota и sim_bonus_quota. Вызывается перед каждой
+ * проверкой лимита, чтобы юзер не мог потратить просроченные бонусы.
+ * Возвращает «свежее» состояние user (после возможного обнуления).
+ */
+export function expireBonusIfNeeded(user) {
+  if (!user) return user;
+  const expAt = user.bonus_expires_at;
+  if (!expAt) return user;
+  // SQLite хранит UTC ISO без 'Z' — Date конструктор разберёт строку как локальную;
+  // делаем явный append 'Z' если без TZ для надёжности.
+  const expIso = /[Zz]|[+\-]\d\d:?\d\d$/.test(expAt) ? expAt : expAt.replace(' ', 'T') + 'Z';
+  const expMs = Date.parse(expIso);
+  if (!Number.isFinite(expMs) || expMs > Date.now()) return user;
+  // Просрочено — обнуляем
+  try {
+    db.run(
+      `UPDATE users SET tg_bonus_quota = 0, sim_bonus_quota = 0, bonus_expires_at = NULL
+        WHERE id = ?`,
+      user.id,
+    );
+  } catch (_) {}
+  return { ...user, tg_bonus_quota: 0, sim_bonus_quota: 0, bonus_expires_at: null };
+}
+
 /** Активна ли сейчас платная подписка. */
 export function isSubActive(user) {
   if (!user?.telegram_user_id) return false;
@@ -88,6 +114,8 @@ function simLimitForTier(tier) {
  * @param {string} [feature] — для попытки списать первую бесплатную пробу
  */
 export function checkAndIncrementLimit(user, res, feature) {
+  // Сначала — lazy expire бонусов от Day Pass
+  user = expireBonusIfNeeded(user);
   const tier = getUserTier(user.telegram_user_id);
   const limit = limitForTier(tier);
   const today = todayUTC();
@@ -150,6 +178,8 @@ export function checkAndIncrementLimit(user, res, feature) {
  * @returns {boolean} true (разрешить) или false (уже ответил 429)
  */
 export function checkAndIncrementSimLimit(user, res) {
+  // Lazy expire бонусов от Day Pass (sim_bonus_quota тоже обнуляется)
+  user = expireBonusIfNeeded(user);
   const tier = getUserTier(user.telegram_user_id);
   const limit = simLimitForTier(tier);
   const today = todayUTC();
@@ -227,6 +257,7 @@ export function tryConsumeBonus(user) {
 
 /** Публичное состояние лимитов для ответа фронтенду. */
 export function buildLimitInfo(user) {
+  user = expireBonusIfNeeded(user);
   const tier = getUserTier(user.telegram_user_id);
   const sub  = getActiveSubscription(user.telegram_user_id);
   const limit = limitForTier(tier);
@@ -250,5 +281,7 @@ export function buildLimitInfo(user) {
     sim_daily_used:   simUsed,
     sim_daily_limit:  simLimit,
     sim_bonus_quota:  user.sim_bonus_quota || 0,
+    // Day Pass TTL — null если бонусов нет, иначе ISO момент сгорания
+    bonus_expires_at: user.bonus_expires_at || null,
   };
 }

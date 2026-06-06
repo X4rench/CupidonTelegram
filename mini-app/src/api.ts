@@ -135,6 +135,9 @@ export interface MeUser {
   sim_daily_used?: number;
   sim_daily_limit?: number;
   sim_bonus_quota?: number;
+  // Day Pass TTL — ISO время сгорания бонусов (tg_bonus_quota + sim_bonus_quota).
+  // null если бонусов нет или просрочены.
+  bonus_expires_at?: string | null;
   is_admin?: boolean;
   is_partner?: boolean;
   created_at?: string;

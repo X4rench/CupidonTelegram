@@ -134,6 +134,15 @@ const MIGRATIONS = [
     version: '005_simulator_message_limits',
     sql: null, // спец-обработка ниже
   },
+  // 007 — TTL для Day Pass: bonus_expires_at в users.
+  // При покупке Day Pass получаем +N запросов и +M сим-сообщений на 24ч.
+  // После истечения — обнуляются (lazy: при следующей проверке лимита).
+  // Колонка одна на оба бонуса (tg_bonus_quota + sim_bonus_quota), т.к. они
+  // начисляются одним платежом одновременно.
+  {
+    version: '007_bonus_expires_at',
+    sql: null,
+  },
   // 006 — лента сообщества: посты + лайки.
   // Юзер из SimulatorResultScreen может «Поделиться в ленту» — пост уходит
   // в статус 'pending', админ approve/reject. Approved посты показываются
@@ -215,6 +224,17 @@ function applySimulatorMessageLimitsMigration() {
   }
 }
 
+/**
+ * 007 — TTL для Day Pass. Колонка bonus_expires_at — момент после которого
+ * tg_bonus_quota и sim_bonus_quota обнуляются.
+ */
+function applyBonusExpiresAtMigration() {
+  const cols = db.prepare('PRAGMA table_info(users)').all();
+  if (!cols.some(c => c.name === 'bonus_expires_at')) {
+    db.exec(`ALTER TABLE users ADD COLUMN bonus_expires_at TEXT`);
+  }
+}
+
 function isApplied(version) {
   return !!db.prepare('SELECT 1 FROM schema_migrations WHERE version = ?').get(version);
 }
@@ -231,6 +251,8 @@ for (const m of MIGRATIONS) {
       applyBillingPeriodMigration();
     } else if (m.version === '005_simulator_message_limits') {
       applySimulatorMessageLimitsMigration();
+    } else if (m.version === '007_bonus_expires_at') {
+      applyBonusExpiresAtMigration();
     } else if (m.sql) {
       db.exec(m.sql);
     }

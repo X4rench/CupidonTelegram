@@ -70,9 +70,7 @@ export function LimitReachedSheet({ open, reason, onClose }: Props) {
         <OptionBtn
           emoji="⚡"
           title={`Day Pass · ${RUB_DAY_PASS} ₽`}
-          subtitle={isSim
-            ? '+100 запросов и +50 сообщений симулятора'
-            : '+100 запросов сразу'}
+          subtitle="+100 запросов и +50 сообщений симулятора · на 24 часа"
           accent
           onClick={() => goPaywall('day_pass')}
         />

@@ -152,7 +152,13 @@ export function ProfileScreen() {
                   marginTop: 6, fontSize: 12, fontWeight: 600,
                   color: 'var(--status-positive)',
                 }}>
-                  +{me?.tg_bonus_quota} запасных запросов
+                  +{me?.tg_bonus_quota} запросов
+                  {(me?.sim_bonus_quota ?? 0) > 0 && ` · +${me?.sim_bonus_quota} сим-сообщений`}
+                  {me?.bonus_expires_at && (
+                    <span style={{ marginLeft: 6, fontWeight: 500, color: 'var(--text-muted)' }}>
+                      · {formatBonusExpiry(me.bonus_expires_at)}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -271,6 +277,21 @@ export function ProfileScreen() {
 
 function SectionTitle({ children }: { children: ReactNode }) {
   return <h2 style={styles.sectionTitle}>{children}</h2>;
+}
+
+/** «через 23ч 45м» / «через 5м» / «сгорает скоро». Для Day Pass quota. */
+function formatBonusExpiry(iso: string): string {
+  // SQLite ISO без 'Z' — добавим если нет TZ
+  const isoSafe = /[Zz]|[+\-]\d\d:?\d\d$/.test(iso) ? iso : iso.replace(' ', 'T') + 'Z';
+  const t = Date.parse(isoSafe);
+  if (!Number.isFinite(t)) return '';
+  const diffMin = Math.floor((t - Date.now()) / 60_000);
+  if (diffMin <= 0) return 'сгорает...';
+  if (diffMin < 60) return `сгорит через ${diffMin}м`;
+  const h = Math.floor(diffMin / 60);
+  const m = diffMin % 60;
+  if (h < 24) return `сгорит через ${h}ч ${m}м`;
+  return `сгорит через ${Math.floor(h / 24)}д`;
 }
 
 /** Дата окончания подписки → "DD.MM.YYYY" в локали ru-RU. null/invalid → '' */

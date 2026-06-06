@@ -176,15 +176,34 @@ async function handlePaymentSucceeded(payment) {
         }
       }
 
-      // Day Pass начисляет ДВЕ квоты сразу:
-      //   - tg_bonus_quota   = +N к общим запросам (Стрела/Разбор/Поддержка/etc)
-      //   - sim_bonus_quota  = +M к сообщениям симулятора (отдельный счётчик)
+      // Day Pass начисляет ДВЕ квоты сразу + TTL 24ч:
+      //   - tg_bonus_quota   = +N к общим запросам (Стрела/Разбор/etc)
+      //   - sim_bonus_quota  = +M к сообщениям симулятора
+      //   - bonus_expires_at = NOW() + 24h (продлевается при покупке нового)
+      //
+      // Если бонус ещё активен (bonus_expires_at > now) — сохраняем остаток,
+      // прибавляем новые квоты и продлеваем TTL на полные 24ч от текущего
+      // момента. Если просрочен или null — стартуем с нуля + 100/50.
+      const u = db.get(
+        `SELECT tg_bonus_quota, sim_bonus_quota, bonus_expires_at
+           FROM users WHERE telegram_user_id = ?`,
+        tgUserId,
+      );
+      const expIso = u?.bonus_expires_at;
+      const active = expIso && Date.parse(/[Zz]|[+\-]\d\d:?\d\d$/.test(expIso) ? expIso : expIso.replace(' ', 'T') + 'Z') > Date.now();
+      const baseTg  = active ? (u?.tg_bonus_quota  || 0) : 0;
+      const baseSim = active ? (u?.sim_bonus_quota || 0) : 0;
+      const newTg  = baseTg  + DAY_PASS_BONUS_QUOTA;
+      const newSim = baseSim + DAY_PASS_SIM_BONUS;
+      // 24 часа от текущего момента в UTC ISO
+      const newExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
       db.run(
         `UPDATE users
-           SET tg_bonus_quota  = COALESCE(tg_bonus_quota, 0)  + ?,
-               sim_bonus_quota = COALESCE(sim_bonus_quota, 0) + ?
+           SET tg_bonus_quota   = ?,
+               sim_bonus_quota  = ?,
+               bonus_expires_at = ?
          WHERE telegram_user_id = ?`,
-        DAY_PASS_BONUS_QUOTA, DAY_PASS_SIM_BONUS, tgUserId
+        newTg, newSim, newExpires, tgUserId,
       );
 
       const row = db.get('SELECT id FROM payments WHERE charge_id = ?', chargeId);
