@@ -215,7 +215,7 @@ export function FirstMessageScreen() {
                   fontSize: 12,
                   color: page >= REGEN_LIMIT ? 'var(--text-muted)' : 'var(--text-accent)',
                 }}>
-                  {page >= REGEN_LIMIT ? 'Лимит исчерпан' : 'Перегенерировать'}
+                  {page >= REGEN_LIMIT ? 'Лимит' : 'Ещё'}
                 </span>
               </button>
             </div>

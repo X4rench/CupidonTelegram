@@ -182,6 +182,42 @@ export function ProfileScreen() {
           )}
         </Card>
 
+        {/* Лимиты сегодня — основное что юзер хочет видеть в Профиле:
+            сколько осталось запросов и сим-сообщений в этот UTC-день */}
+        <Card style={styles.limitsCard}>
+          <div style={styles.limitsHeader}>
+            <span style={styles.limitsTitle}>Лимиты сегодня</span>
+            <button
+              onClick={() => { selectionHaptic(); nav('/paywall'); }}
+              style={styles.limitsUpgradeBtn}
+            >
+              Улучшить →
+            </button>
+          </div>
+          <LimitBar
+            label="⚡ Запросы"
+            used={me?.daily_used ?? 0}
+            limit={me?.daily_limit ?? 0}
+            bonus={me?.tg_bonus_quota ?? 0}
+            unit=""
+          />
+          <LimitBar
+            label="🎭 Сим-сообщения"
+            used={me?.sim_daily_used ?? 0}
+            limit={me?.sim_daily_limit ?? 0}
+            bonus={me?.sim_bonus_quota ?? 0}
+            unit=""
+          />
+          {me?.bonus_expires_at && ((me?.tg_bonus_quota ?? 0) > 0 || (me?.sim_bonus_quota ?? 0) > 0) && (
+            <div style={styles.bonusHint}>
+              ⏳ Day Pass {formatBonusExpiry(me.bonus_expires_at)}
+            </div>
+          )}
+          <div style={styles.limitsFooter}>
+            Лимиты сбрасываются в 00:00 UTC (03:00 МСК)
+          </div>
+        </Card>
+
         {/* Partner cabinet CTA — показываем только партнёрам */}
         {me?.is_partner && (
           <Card
@@ -274,6 +310,56 @@ export function ProfileScreen() {
     </Layout>
   );
 }
+
+/**
+ * Прогресс-бар по дневному лимиту.
+ *   used   — сколько использовано базовой квоты сегодня
+ *   limit  — дневной лимит тира (Free/Basic/Premium)
+ *   bonus  — текущая bonus_quota (Day Pass) — НЕ входит в прогресс,
+ *            но добавляется к доступному «+N бонус» справа
+ */
+function LimitBar({ label, used, limit, bonus, unit }:
+  { label: string; used: number; limit: number; bonus: number; unit: string }) {
+  const safeLimit = Math.max(0, limit);
+  const remaining = Math.max(0, safeLimit - used);
+  const pct = safeLimit > 0 ? Math.min(100, (used / safeLimit) * 100) : 0;
+  // Цвет прогресса: зелёный → жёлтый → красный по мере исчерпания
+  const color = pct < 60 ? 'var(--status-positive)'
+              : pct < 90 ? 'var(--status-warning, #F59E0B)'
+              : 'var(--status-negative)';
+  return (
+    <div style={limitBarStyles.wrap}>
+      <div style={limitBarStyles.head}>
+        <span style={limitBarStyles.label}>{label}</span>
+        <span style={limitBarStyles.count}>
+          {remaining}{unit} <span style={limitBarStyles.dim}>/ {safeLimit}</span>
+          {bonus > 0 && <span style={limitBarStyles.bonusBadge}>+{bonus}</span>}
+        </span>
+      </div>
+      <div style={limitBarStyles.track}>
+        <div style={{ ...limitBarStyles.fill, width: `${pct}%`, background: color }} />
+      </div>
+    </div>
+  );
+}
+
+const limitBarStyles: Record<string, CSSProperties> = {
+  wrap: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 },
+  head: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  label: { fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 },
+  count: { fontSize: 13, color: 'var(--text-primary)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 },
+  dim: { color: 'var(--text-muted)', fontWeight: 500 },
+  bonusBadge: {
+    padding: '2px 6px', borderRadius: 6,
+    background: 'rgba(34,197,94,0.18)', color: 'var(--status-positive)',
+    fontSize: 11, fontWeight: 700,
+  },
+  track: {
+    width: '100%', height: 6, borderRadius: 3,
+    background: 'var(--bg-elevated)', overflow: 'hidden',
+  },
+  fill: { height: '100%', borderRadius: 3, transition: 'width 240ms, background 240ms' },
+};
 
 function SectionTitle({ children }: { children: ReactNode }) {
   return <h2 style={styles.sectionTitle}>{children}</h2>;
@@ -377,6 +463,35 @@ const styles: Record<string, CSSProperties> = {
   },
 
   subCard: { marginBottom: 16 },
+  // Блок «Лимиты сегодня»
+  limitsCard: { marginBottom: 16, padding: 16 },
+  limitsHeader: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 12,
+  },
+  limitsTitle: {
+    fontSize: 13, fontWeight: 700, color: 'var(--text-muted)',
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  limitsUpgradeBtn: {
+    background: 'transparent', border: 0,
+    color: 'var(--text-accent)', fontSize: 12, fontWeight: 600,
+    padding: 4, cursor: 'pointer',
+  },
+  bonusHint: {
+    marginTop: 4, padding: '8px 10px',
+    background: 'var(--bg-elevated)',
+    border: '1px dashed var(--border-default)',
+    borderRadius: 8,
+    fontSize: 12, fontWeight: 600,
+    color: 'var(--text-secondary)',
+    textAlign: 'center',
+  },
+  limitsFooter: {
+    marginTop: 8,
+    fontSize: 10, color: 'var(--text-muted)',
+    textAlign: 'center',
+  },
   manageSubBtn: {
     width: '100%',
     minHeight: 40,
