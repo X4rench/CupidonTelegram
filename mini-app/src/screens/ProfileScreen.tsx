@@ -74,7 +74,8 @@ export function ProfileScreen() {
   // «Подписка» вынесена выше отдельной карточкой (см. Subscription CTA).
   const links: { label: string; to: string; icon: string; color?: string }[] = [
     { label: 'Промокод', to: '/promo', icon: 'gift' },
-    { label: 'Рефералка', to: '/referral', icon: 'users' },
+    // Рефералка пока отключена — оставлю в коде закомментированно, легко вернуть.
+    // { label: 'Рефералка', to: '/referral', icon: 'users' },
     { label: 'Настройки', to: '/settings', icon: 'settings' },
     { label: 'Туториал', to: '/tutorial', icon: 'play' },
     { label: 'Условия использования', to: '/terms', icon: 'doc' },

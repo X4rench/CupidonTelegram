@@ -17,6 +17,9 @@ import { SecondaryButton } from '../components/SecondaryButton';
 import { AutoGrowTextarea } from '../components/AutoGrowTextarea';
 import { IOSPasteHint } from '../components/IOSPasteHint';
 import { LimitReachedSheet, type LimitReason } from '../components/LimitReachedSheet';
+import { storage } from '../utils/storage';
+
+const WING_STORAGE_KEY = 'wing_per_girl_state';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic, selectionHaptic } from '../utils/haptics';
 import {
@@ -154,7 +157,13 @@ export function WingScreen() {
   // В API Contact.id = number, но конвертируем через String() при загрузке.
   const [contacts, setContacts] = useState<Array<Omit<Contact, 'id'> & { id: string }>>([]);
   const [activeContactId, setActiveContactId] = useState<string>(NO_CONTACT_ID);
-  const [perGirl, setPerGirl] = useState<Record<string, GirlAnalysis>>({ [NO_CONTACT_ID]: emptyAnalysis() });
+  // Восстанавливаем per-contact state из localStorage — чтобы анализ
+  // не терялся при переходе на другие экраны и возврате в Стрелу.
+  const [perGirl, setPerGirl] = useState<Record<string, GirlAnalysis>>(() => {
+    const saved = storage.get<Record<string, GirlAnalysis> | null>(WING_STORAGE_KEY, null);
+    if (saved && typeof saved === 'object') return saved;
+    return { [NO_CONTACT_ID]: emptyAnalysis() };
+  });
   const [analysisTypazhes, setAnalysisTypazhes] = useState<Record<string, string[]>>({});
   const [typazhExpanded, setTypazhExpanded] = useState(false);
 
@@ -183,6 +192,12 @@ export function WingScreen() {
       .then(r => { if (r.ok) setHistory(r.sessions || []); })
       .catch(() => {});
   }, []);
+
+  // Сохраняем perGirl в localStorage при каждом изменении — чтобы при
+  // переходе на главную/симулятор и возврате анализ был на месте.
+  useEffect(() => {
+    storage.set(WING_STORAGE_KEY, perGirl);
+  }, [perGirl]);
 
   // Initialize per-contact analysis state on first switch
   useEffect(() => {

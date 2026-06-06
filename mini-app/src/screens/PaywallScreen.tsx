@@ -361,14 +361,10 @@ export function PaywallScreen() {
         />
       </div>
 
-      {/* Доп. CTA — промо/реферал */}
+      {/* Доп. CTA — только промо. Рефералка отключена (см. ProfileScreen). */}
       <div style={styles.extra}>
         <button style={styles.linkBtn} onClick={() => { impactHaptic('light'); nav('/promo'); }}>
           Есть промокод?
-        </button>
-        <span style={styles.dot}>·</span>
-        <button style={styles.linkBtn} onClick={() => { impactHaptic('light'); nav('/referral'); }}>
-          Пригласить друга
         </button>
       </div>
 
