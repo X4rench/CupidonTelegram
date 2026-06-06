@@ -6,14 +6,16 @@
 // summary + tip. CTA: «Ещё попытка» (→ /simulator) и «Главная» (→ /).
 // ═══════════════════════════════════════════════════════════════
 import { useEffect, useState, type CSSProperties } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { Card } from '../components/Card';
 import { GradientButton } from '../components/GradientButton';
 import { SecondaryButton } from '../components/SecondaryButton';
-import { finishSimulator, ApiError } from '../api';
+import { finishSimulator, communityApi, ApiError, type CommunityMsg } from '../api';
 import { useBackButton } from '../utils/backButton';
-import { notificationHaptic } from '../utils/haptics';
+import { notificationHaptic, impactHaptic, selectionHaptic } from '../utils/haptics';
+import { storage } from '../utils/storage';
+import { cleanTypazhName } from '../utils/typazhes';
 
 interface SimResult {
   score: number;
@@ -26,11 +28,16 @@ interface SimResult {
 export function SimulatorResultScreen() {
   const nav = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const [search] = useSearchParams();
   const sessionId = id ? decodeURIComponent(id) : '';
+  const storageKey = search.get('key') || '';
 
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<SimResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareStatus, setShareStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   useBackButton(() => nav(-1));
 
@@ -54,6 +61,44 @@ export function SimulatorResultScreen() {
       })
       .finally(() => setLoading(false));
   }, [sessionId, nav]);
+
+  const submitShare = async () => {
+    if (shareBusy) return;
+    setShareBusy(true);
+    setShareStatus(null);
+    try {
+      // Берём snapshot диалога из storage (то же что показывалось в чате).
+      // Безопасный fallback на пустоту — backend всё равно проверит минимум 2 сообщения.
+      const stored: any = storageKey ? storage.get(storageKey, null) : null;
+      const messages = Array.isArray(stored?.messages) ? stored.messages : [];
+      const typazh = cleanTypazhName(stored?.typazh) || 'AI';
+      const girl_name = stored?.girl_name || null;
+
+      const res = await communityApi.submit({
+        girl_name,
+        typazh,
+        messages: messages as CommunityMsg[],
+        analysis: result || null,
+        score: result?.score ?? null,
+      });
+      if (res.ok) {
+        notificationHaptic('success');
+        setShareStatus({ kind: 'ok', text: res.message || 'Пост отправлен на модерацию' });
+        setTimeout(() => setShareOpen(false), 1500);
+      } else {
+        setShareStatus({ kind: 'err', text: res.error || 'Не удалось отправить' });
+      }
+    } catch (e: any) {
+      notificationHaptic('error');
+      if (e?.code === 'POST_LIMIT_EXCEEDED') {
+        setShareStatus({ kind: 'err', text: e.message || 'Ты уже опубликовал пост сегодня. Можно один в день.' });
+      } else {
+        setShareStatus({ kind: 'err', text: e?.message || 'Не удалось отправить' });
+      }
+    } finally {
+      setShareBusy(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -166,6 +211,22 @@ export function SimulatorResultScreen() {
           </Card>
         )}
 
+        {/* Кнопка «Поделиться в ленту» — между разбором и навигацией */}
+        <button
+          onClick={() => { impactHaptic('light'); setShareOpen(true); }}
+          style={styles.shareBtn}
+        >
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="18" cy="5"  r="3" />
+            <circle cx="6"  cy="12" r="3" />
+            <circle cx="18" cy="19" r="3" />
+            <line x1="8.59"  y1="13.51" x2="15.42" y2="17.49" />
+            <line x1="15.41" y1="6.51"  x2="8.59"  y2="10.49" />
+          </svg>
+          Поделиться в ленту
+        </button>
+
         <div style={{ display: 'flex', gap: 10 }}>
           <div style={{ flex: 1 }}>
             <SecondaryButton onClick={() => nav('/simulator')} full>Ещё попытка</SecondaryButton>
@@ -175,6 +236,64 @@ export function SimulatorResultScreen() {
           </div>
         </div>
       </div>
+
+      {/* Sheet с подтверждением шеринга */}
+      {shareOpen && (
+        <div style={styles.backdrop} onClick={() => { selectionHaptic(); setShareOpen(false); }}>
+          <div style={styles.sheet} onClick={e => e.stopPropagation()}>
+            <div style={styles.sheetHandle} />
+            <div style={styles.sheetTitle}>Поделиться в ленте?</div>
+            <div style={styles.sheetSub}>
+              В ленту попадёт твой диалог с AI-девушкой и разбор.
+              Перед публикацией мы проверим пост на модерации.
+            </div>
+
+            <div style={styles.previewBox}>
+              <div style={styles.previewRow}>
+                <span style={styles.previewLabel}>Девушка:</span>
+                <span style={styles.previewValue}>
+                  {(() => {
+                    const s: any = storageKey ? storage.get(storageKey, null) : null;
+                    const t = cleanTypazhName(s?.typazh) || 'AI';
+                    return s?.girl_name ? `${s.girl_name} · ${t}` : t;
+                  })()}
+                </span>
+              </div>
+              {result?.score != null && (
+                <div style={styles.previewRow}>
+                  <span style={styles.previewLabel}>Оценка:</span>
+                  <span style={styles.previewValue}>{result.score.toFixed(1)} / 10</span>
+                </div>
+              )}
+              <div style={styles.previewRow}>
+                <span style={styles.previewLabel}>Содержимое:</span>
+                <span style={styles.previewValue}>весь диалог + разбор</span>
+              </div>
+            </div>
+
+            {shareStatus && (
+              <div style={{
+                ...styles.shareStatus,
+                color: shareStatus.kind === 'ok' ? 'var(--status-positive)' : 'var(--status-negative)',
+              }}>
+                {shareStatus.text}
+              </div>
+            )}
+
+            <GradientButton
+              onClick={submitShare}
+              loading={shareBusy}
+              disabled={shareBusy || shareStatus?.kind === 'ok'}
+              full
+            >
+              {shareStatus?.kind === 'ok' ? 'Отправлено ✓' : 'Отправить на модерацию'}
+            </GradientButton>
+            <button onClick={() => setShareOpen(false)} style={styles.sheetCancel}>
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }
@@ -226,5 +345,69 @@ const styles: Record<string, CSSProperties> = {
   },
   feedbackText: {
     flex: 1, fontSize: 14, color: 'var(--text-secondary)', lineHeight: '21px',
+  },
+  shareBtn: {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    gap: 8,
+    padding: '12px 16px',
+    borderRadius: 12,
+    background: 'transparent',
+    border: '1px dashed var(--border-accent)',
+    color: 'var(--text-accent)',
+    fontSize: 14, fontWeight: 600,
+    cursor: 'pointer',
+  },
+  // ── Share-sheet ──
+  backdrop: {
+    position: 'fixed', inset: 0,
+    background: 'rgba(0,0,0,0.65)',
+    display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+    zIndex: 100,
+  },
+  sheet: {
+    width: '100%', maxWidth: 520,
+    background: 'var(--bg-card)',
+    borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    padding: '14px 18px',
+    paddingBottom: 'calc(18px + var(--safe-bottom))',
+    display: 'flex', flexDirection: 'column', gap: 12,
+    boxShadow: '0 -8px 28px rgba(0,0,0,0.4)',
+  },
+  sheetHandle: {
+    width: 38, height: 4,
+    background: 'var(--border-default)',
+    borderRadius: 2,
+    margin: '0 auto 4px',
+  },
+  sheetTitle: {
+    fontSize: 18, fontWeight: 700,
+    color: 'var(--text-primary)',
+    textAlign: 'center',
+  },
+  sheetSub: {
+    fontSize: 13, lineHeight: '18px',
+    color: 'var(--text-secondary)',
+    textAlign: 'center',
+  },
+  previewBox: {
+    padding: 12,
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 10,
+    display: 'flex', flexDirection: 'column', gap: 6,
+  },
+  previewRow: {
+    display: 'flex', alignItems: 'baseline', gap: 8,
+    fontSize: 13,
+  },
+  previewLabel: { color: 'var(--text-muted)', flexShrink: 0 },
+  previewValue: { color: 'var(--text-primary)', fontWeight: 600 },
+  shareStatus: {
+    fontSize: 13, textAlign: 'center', fontWeight: 600,
+  },
+  sheetCancel: {
+    background: 'transparent', border: 0,
+    color: 'var(--text-muted)', fontSize: 13,
+    padding: 10, cursor: 'pointer',
   },
 };

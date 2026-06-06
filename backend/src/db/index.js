@@ -134,6 +134,41 @@ const MIGRATIONS = [
     version: '005_simulator_message_limits',
     sql: null, // спец-обработка ниже
   },
+  // 006 — лента сообщества: посты + лайки.
+  // Юзер из SimulatorResultScreen может «Поделиться в ленту» — пост уходит
+  // в статус 'pending', админ approve/reject. Approved посты показываются
+  // в CommunityScreen. Лайки — toggle (1 от юзера, можно снять).
+  {
+    version: '006_community',
+    sql: `
+      CREATE TABLE IF NOT EXISTS community_posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        telegram_user_id INTEGER NOT NULL,
+        author_name TEXT NOT NULL,
+        girl_name TEXT,
+        typazh TEXT NOT NULL,
+        messages TEXT NOT NULL,
+        analysis TEXT,
+        score INTEGER,
+        status TEXT NOT NULL DEFAULT 'pending',
+        rejected_reason TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        approved_at TEXT,
+        reviewed_by INTEGER,
+        likes_count INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_community_posts_status ON community_posts(status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_community_posts_user ON community_posts(telegram_user_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS community_post_likes (
+        post_id INTEGER NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+        telegram_user_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (post_id, telegram_user_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_community_likes_user ON community_post_likes(telegram_user_id);
+    `,
+  },
 ];
 
 /**

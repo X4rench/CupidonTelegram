@@ -1,35 +1,80 @@
 // ═══════════════════════════════════════════════════════════════
-// CommunityScreen — фид сообщества (MOCK_FEED из utils/communityFeed.ts).
-// Phase F: backend нет (статика). На каждой карточке — превью переписки,
-// тип девушки, score-badge. Тап → раскрытие полной переписки в той же карточке.
+// CommunityScreen — фид сообщества с реальным backend.
+//
+// GET /community/feed — список approved постов
+// POST/DELETE /community/posts/:id/like — toggle лайка
+//
+// Юзер из SimulatorResultScreen может «Поделиться в ленту». Пост идёт
+// в pending, админ approve/reject в Admin → таб «Модерация».
 // ═══════════════════════════════════════════════════════════════
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { Card } from '../components/Card';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, selectionHaptic } from '../utils/haptics';
-import { MOCK_FEED, type FeedPost, type FeedMsg } from '../utils/communityFeed';
+import { communityApi, type CommunityFeedPost, type CommunityFullPost } from '../api';
 
 export function CommunityScreen() {
   const nav = useNavigate();
   useBackButton(() => nav(-1));
 
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [liked, setLiked] = useState<Set<string>>(new Set(MOCK_FEED.filter(p => p.liked).map(p => p.id)));
+  const [posts, setPosts] = useState<CommunityFeedPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [fullPosts, setFullPosts] = useState<Record<number, CommunityFullPost>>({});
 
-  const toggleLike = (id: string) => {
-    impactHaptic('light');
-    setLiked(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    communityApi.feed(30, 0)
+      .then(res => { if (!cancelled && res.ok) setPosts(res.posts || []); })
+      .catch(e => { if (!cancelled) setError(e?.message || 'Не удалось загрузить ленту'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const toggleOpen = async (id: number) => {
+    selectionHaptic();
+    if (openId === id) {
+      setOpenId(null);
+      return;
+    }
+    setOpenId(id);
+    // Подгружаем полный диалог если ещё не загружен
+    if (!fullPosts[id]) {
+      try {
+        const res = await communityApi.getPost(id);
+        if (res.ok) setFullPosts(prev => ({ ...prev, [id]: res.post }));
+      } catch (_) {}
+    }
   };
 
-  const toggleOpen = (id: string) => {
-    selectionHaptic();
-    setOpenId(prev => prev === id ? null : id);
+  const toggleLike = async (id: number) => {
+    impactHaptic('light');
+    const post = posts.find(p => p.id === id);
+    if (!post) return;
+    // Оптимистичный update
+    setPosts(prev => prev.map(p => p.id === id
+      ? { ...p, liked: !p.liked, likes_count: p.likes_count + (p.liked ? -1 : 1) }
+      : p));
+    try {
+      const res = post.liked
+        ? await communityApi.unlike(id)
+        : await communityApi.like(id);
+      if (res.ok) {
+        setPosts(prev => prev.map(p => p.id === id
+          ? { ...p, liked: res.liked, likes_count: res.likes_count }
+          : p));
+      }
+    } catch (_) {
+      // Откатываем оптимистичный update при ошибке
+      setPosts(prev => prev.map(p => p.id === id
+        ? { ...p, liked: post.liked, likes_count: post.likes_count }
+        : p));
+    }
   };
 
   return (
@@ -37,105 +82,138 @@ export function CommunityScreen() {
       <div style={styles.container}>
         <h1 style={styles.h1}>Сообщество</h1>
         <p style={styles.intro}>
-          Здесь будут истории, кейсы и разборы реальных диалогов.
-          Скоро добавим первые публикации.
+          Реальные диалоги юзеров с разбором. Учись на чужом опыте,
+          лайкай интересные кейсы.
         </p>
 
-        <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {MOCK_FEED.length === 0 ? (
-            <Card style={{ padding: 24, textAlign: 'center' }}>
-              <div style={{ fontSize: 36, marginBottom: 8 }}>📭</div>
-              <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                Пока пусто
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-                Первые публикации появятся скоро. Загляни позже!
-              </div>
-            </Card>
-          ) : MOCK_FEED.map(post => (
-            <FeedCard
-              key={post.id}
-              post={post}
-              open={openId === post.id}
-              liked={liked.has(post.id)}
-              onToggle={() => toggleOpen(post.id)}
-              onLike={() => toggleLike(post.id)}
-            />
-          ))}
-        </div>
+        {loading && (
+          <div style={styles.note}>Загружаем…</div>
+        )}
+
+        {error && !loading && (
+          <Card style={{ padding: 16, textAlign: 'center', color: 'var(--status-negative)' }}>
+            {error}
+          </Card>
+        )}
+
+        {!loading && !error && posts.length === 0 && (
+          <Card style={{ padding: 24, textAlign: 'center' }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>📭</div>
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+              Пока пусто
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+              Заверши симуляцию и поделись первым кейсом!
+            </div>
+          </Card>
+        )}
+
+        {!loading && !error && posts.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {posts.map(post => (
+              <FeedCard
+                key={post.id}
+                post={post}
+                full={fullPosts[post.id]}
+                open={openId === post.id}
+                onToggle={() => toggleOpen(post.id)}
+                onLike={() => toggleLike(post.id)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </Layout>
   );
 }
 
 interface FeedCardProps {
-  post: FeedPost;
+  post: CommunityFeedPost;
+  full?: CommunityFullPost;
   open: boolean;
-  liked: boolean;
   onToggle: () => void;
   onLike: () => void;
 }
 
-function FeedCard({ post, open, liked, onToggle, onLike }: FeedCardProps) {
-  const visibleMsgs = open ? post.messages : post.preview;
+function FeedCard({ post, full, open, onToggle, onLike }: FeedCardProps) {
+  const messages = open && full ? full.messages : post.preview;
+  const analysis = open ? full?.analysis : null;
+  const showMoreCount = !open && post.messages_count > post.preview.length
+    ? (post.messages_count - post.preview.length)
+    : 0;
+
+  const initial = (post.author_name || '?').trim().slice(0, 1).toUpperCase();
+  const fullLabel = post.girl_name
+    ? `${post.girl_name} · ${post.typazh}`
+    : post.typazh;
+
   return (
-    <Card>
-      <div style={styles.feedHeader}>
-        <div style={{
-          ...styles.avatar,
-          background: `linear-gradient(135deg, ${post.avatarColors[0]}, ${post.avatarColors[1]})`,
-        }}>
-          {post.user[0].toUpperCase()}
-        </div>
+    <Card style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Header */}
+      <div style={styles.cardHead}>
+        <div style={styles.avatar}>{initial}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={styles.username}>@{post.user}</div>
-          <div style={styles.subline}>
-            <span style={{ color: post.typeColor }}>{post.typeName}</span>
-            <span style={{ color: 'var(--text-muted)' }}> · {post.time}</span>
-          </div>
+          <div style={styles.author}>{post.author_name}</div>
+          <div style={styles.meta}>{fullLabel} · {formatRelative(post.created_at)}</div>
         </div>
-        <div style={styles.scoreBadge}>{post.score}</div>
+        {post.score != null && (
+          <div style={styles.scoreBadge}>{post.score.toFixed ? post.score.toFixed(1) : post.score} / 10</div>
+        )}
       </div>
 
-      <div style={styles.chat}>
-        {visibleMsgs.map((m, i) => (
-          <ChatLine key={i} msg={m} />
+      {/* Messages */}
+      <div style={styles.bubbles}>
+        {messages.map((m, i) => (
+          <Bubble key={i} role={m.from}>{m.text}</Bubble>
         ))}
       </div>
 
-      {!open && post.messages.length > post.preview.length && (
-        <button onClick={onToggle} style={styles.expandBtn}>
-          Показать всю переписку ({post.messages.length} сообщений)
-        </button>
-      )}
-      {open && (
-        <>
-          <div style={styles.divider} />
-          <div style={styles.sectionLabel}>Разбор</div>
-          {post.analysis.map(a => (
-            <div key={a.label} style={styles.analysisRow}>
-              <span style={{ fontSize: 13 }}>{a.label}</span>
-              <div style={styles.barTrack}>
-                <div style={{ ...styles.barFill, width: `${a.value}%`, background: a.color }} />
-              </div>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 30, textAlign: 'right' }}>
-                {a.value}%
-              </span>
+      {/* Toggle / Show analysis */}
+      <button onClick={onToggle} style={styles.toggleBtn}>
+        {open ? 'Свернуть' : showMoreCount > 0 ? `Показать всё (+${showMoreCount} сообщ.) и разбор` : 'Открыть разбор'}
+      </button>
+
+      {/* Analysis (только когда открыто) */}
+      {open && analysis && (
+        <div style={styles.analysisBox}>
+          {typeof analysis.summary === 'string' && (
+            <div style={styles.analysisRow}>
+              <span style={styles.analysisLabel}>Итог</span>
+              <span style={styles.analysisText}>{analysis.summary}</span>
             </div>
-          ))}
-          <div style={styles.tipBox}>
-            <span style={{ marginRight: 6 }}>💡</span>{post.tip}
-          </div>
-        </>
+          )}
+          {typeof analysis.tip === 'string' && (
+            <div style={styles.analysisRow}>
+              <span style={styles.analysisLabel}>Совет</span>
+              <span style={styles.analysisText}>{analysis.tip}</span>
+            </div>
+          )}
+          {Array.isArray(analysis.strengths) && analysis.strengths.length > 0 && (
+            <div style={styles.analysisRow}>
+              <span style={styles.analysisLabel}>Плюсы</span>
+              <span style={styles.analysisText}>{analysis.strengths.join('; ')}</span>
+            </div>
+          )}
+          {Array.isArray(analysis.improvements) && analysis.improvements.length > 0 && (
+            <div style={styles.analysisRow}>
+              <span style={styles.analysisLabel}>Минусы</span>
+              <span style={styles.analysisText}>{analysis.improvements.join('; ')}</span>
+            </div>
+          )}
+        </div>
       )}
 
-      <div style={styles.footer}>
-        <button onClick={onLike} style={styles.likeBtn} aria-label="лайк">
-          <span style={{ fontSize: 16, color: liked ? 'var(--accent-primary)' : 'var(--text-muted)' }}>
-            {liked ? '❤' : '♡'}
-          </span>
-          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            {post.likes + (liked && !post.liked ? 1 : 0)}
+      {/* Footer — лайк */}
+      <div style={styles.cardFooter}>
+        <button onClick={onLike} style={styles.likeBtn}>
+          <svg width={16} height={16} viewBox="0 0 24 24"
+               fill={post.liked ? 'var(--accent-primary)' : 'none'}
+               stroke={post.liked ? 'var(--accent-primary)' : 'var(--text-muted)'}
+               strokeWidth={2}>
+            <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
+          </svg>
+          <span style={{ color: post.liked ? 'var(--accent-primary)' : 'var(--text-muted)' }}>
+            {post.likes_count}
           </span>
         </button>
       </div>
@@ -143,41 +221,107 @@ function FeedCard({ post, open, liked, onToggle, onLike }: FeedCardProps) {
   );
 }
 
-function ChatLine({ msg }: { msg: FeedMsg }) {
-  const isMe = msg.role === 'me';
+function Bubble({ role, children }: { role: 'me' | 'her'; children: any }) {
+  const isMe = role === 'me';
   return (
     <div style={{ display: 'flex', justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
       <div style={{
-        ...styles.bubble,
-        background: isMe ? 'var(--accent-primary)' : 'var(--bg-elevated)',
-        color: isMe ? '#fff' : 'var(--text-primary)',
+        maxWidth: '85%',
+        padding: '7px 11px',
+        borderRadius: 14,
         borderBottomRightRadius: isMe ? 4 : 14,
-        borderBottomLeftRadius:  isMe ? 14 : 4,
+        borderBottomLeftRadius: isMe ? 14 : 4,
+        background: isMe ? 'var(--gradient-accent)' : 'var(--bg-elevated)',
+        color: isMe ? '#fff' : 'var(--text-primary)',
+        fontSize: 13, lineHeight: '18px',
+        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
       }}>
-        {msg.text}
+        {children}
       </div>
     </div>
   );
 }
 
+function formatRelative(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return 'только что';
+  if (diff < 3600) return `${Math.floor(diff / 60)} мин назад`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} ч назад`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)} д назад`;
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' });
+}
+
 const styles: Record<string, CSSProperties> = {
-  container:    { padding: '24px 20px' },
-  h1:           { margin: 0, fontSize: 24, fontWeight: 700 },
-  intro:        { marginTop: 8, color: 'var(--text-muted)', fontSize: 14, lineHeight: 1.5 },
-  feedHeader:   { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 },
-  avatar:       { width: 40, height: 40, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 16 },
-  username:     { fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  subline:      { fontSize: 12 },
-  scoreBadge:   { padding: '4px 10px', borderRadius: 12, background: 'var(--accent-soft)', color: 'var(--text-accent)', fontSize: 13, fontWeight: 600 },
-  chat:         { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 },
-  bubble:       { maxWidth: '80%', padding: '8px 12px', borderRadius: 14, fontSize: 14, lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
-  expandBtn:    { marginTop: 12, padding: '10px 14px', width: '100%', borderRadius: 8, background: 'var(--bg-elevated)', color: 'var(--text-accent)', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
-  divider:      { height: 1, background: 'var(--border-subtle)', margin: '16px 0' },
-  sectionLabel: { fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
-  analysisRow:  { display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 },
-  barTrack:     { flex: 1, height: 6, borderRadius: 3, background: 'var(--bg-elevated)', overflow: 'hidden' },
-  barFill:      { height: '100%', borderRadius: 3, transition: 'width 0.3s ease' },
-  tipBox:       { marginTop: 12, padding: 12, borderRadius: 10, background: 'rgba(245,158,11,0.1)', fontSize: 13, lineHeight: 1.5 },
-  footer:       { display: 'flex', alignItems: 'center', gap: 16, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border-subtle)' },
-  likeBtn:      { display: 'flex', alignItems: 'center', gap: 6, padding: 4 },
+  container: { padding: '12px 16px 24px' },
+  h1: { margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' },
+  intro: {
+    margin: '6px 0 16px', fontSize: 13, lineHeight: '18px',
+    color: 'var(--text-secondary)',
+  },
+  note: {
+    padding: 30, textAlign: 'center',
+    color: 'var(--text-muted)', fontSize: 14,
+  },
+  cardHead: {
+    display: 'flex', alignItems: 'center', gap: 10,
+  },
+  avatar: {
+    width: 36, height: 36, borderRadius: 18,
+    background: 'var(--gradient-accent)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    color: '#fff', fontWeight: 700, fontSize: 14,
+    flexShrink: 0,
+  },
+  author: {
+    fontSize: 14, fontWeight: 600, color: 'var(--text-primary)',
+  },
+  meta: {
+    fontSize: 11, color: 'var(--text-muted)', marginTop: 2,
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  },
+  scoreBadge: {
+    fontSize: 12, fontWeight: 700,
+    padding: '4px 8px',
+    borderRadius: 8,
+    background: 'var(--accent-soft)',
+    color: 'var(--text-accent)',
+    flexShrink: 0,
+  },
+  bubbles: {
+    display: 'flex', flexDirection: 'column', gap: 5,
+  },
+  toggleBtn: {
+    alignSelf: 'flex-start',
+    background: 'transparent', border: 0,
+    color: 'var(--text-accent)', fontSize: 13, fontWeight: 600,
+    padding: 4, cursor: 'pointer',
+  },
+  analysisBox: {
+    padding: 10,
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 10,
+    display: 'flex', flexDirection: 'column', gap: 6,
+  },
+  analysisRow: { display: 'flex', flexDirection: 'column', gap: 2 },
+  analysisLabel: {
+    fontSize: 10, fontWeight: 700, color: 'var(--text-muted)',
+    textTransform: 'uppercase', letterSpacing: 0.4,
+  },
+  analysisText: {
+    fontSize: 13, color: 'var(--text-secondary)', lineHeight: '18px',
+  },
+  cardFooter: {
+    display: 'flex', alignItems: 'center', gap: 12,
+    paddingTop: 6,
+    borderTop: '1px solid var(--border-subtle)',
+  },
+  likeBtn: {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    background: 'transparent', border: 0,
+    padding: 4, cursor: 'pointer',
+    fontSize: 13, fontWeight: 600,
+  },
 };

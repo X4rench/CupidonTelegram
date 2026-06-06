@@ -27,6 +27,7 @@ import { Layout } from '../components/Layout';
 import {
   adminApi,
   partnerAdminApi,
+  communityAdminApi,
   type AdminPrompt,
   type AdminStats,
   type AdminRequestLog,
@@ -34,17 +35,19 @@ import {
   type AdminPromptTestResp,
   type AdminPartnerRow,
   type AdminPartnersDashboardResp,
+  type CommunityFullPost,
 } from '../api';
 
-type Tab = 'stats' | 'prompts' | 'subs' | 'logs' | 'audit' | 'partners';
+type Tab = 'stats' | 'prompts' | 'subs' | 'logs' | 'audit' | 'partners' | 'moderation';
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'stats',    label: 'Статистика' },
-  { id: 'subs',     label: 'Подписки' },
-  { id: 'partners', label: 'Партнёры' },
-  { id: 'prompts',  label: 'Промпты' },
-  { id: 'logs',     label: 'Логи' },
-  { id: 'audit',    label: 'Audit' },
+  { id: 'stats',      label: 'Статистика' },
+  { id: 'subs',       label: 'Подписки' },
+  { id: 'partners',   label: 'Партнёры' },
+  { id: 'moderation', label: 'Модерация' },
+  { id: 'prompts',    label: 'Промпты' },
+  { id: 'logs',       label: 'Логи' },
+  { id: 'audit',      label: 'Audit' },
 ];
 
 export function AdminScreen() {
@@ -100,12 +103,13 @@ export function AdminScreen() {
       </div>
 
       <div style={styles.content}>
-        {tab === 'stats'    && <StatsTab />}
-        {tab === 'subs'     && <SubsTab />}
-        {tab === 'partners' && <PartnersTab />}
-        {tab === 'prompts'  && <PromptsTab />}
-        {tab === 'logs'     && <LogsTab />}
-        {tab === 'audit'    && <AuditTab />}
+        {tab === 'stats'      && <StatsTab />}
+        {tab === 'subs'       && <SubsTab />}
+        {tab === 'partners'   && <PartnersTab />}
+        {tab === 'moderation' && <ModerationTab />}
+        {tab === 'prompts'    && <PromptsTab />}
+        {tab === 'logs'       && <LogsTab />}
+        {tab === 'audit'      && <AuditTab />}
       </div>
     </div>
   );
@@ -1373,6 +1377,208 @@ function statusColor(s: number): string {
   if (s >= 500) return 'var(--status-negative)';
   if (s >= 400) return 'var(--status-warning)';
   return 'var(--status-positive)';
+}
+
+// ─── Moderation Tab ─────────────────────────────────────────────────────────
+// Список pending-постов сообщества. Каждый — превью + Approve / Reject.
+
+function ModerationTab() {
+  const [posts, setPosts] = useState<Array<CommunityFullPost & { telegram_user_id: number }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [rejectId, setRejectId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await communityAdminApi.pending();
+      setPosts(res.posts || []);
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось загрузить');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const onApprove = async (id: number) => {
+    if (busy) return;
+    setBusy(id);
+    try {
+      await communityAdminApi.approve(id);
+      notificationHaptic('success');
+      setPosts(prev => prev.filter(p => p.id !== id));
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось одобрить');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onReject = async () => {
+    if (busy || !rejectId) return;
+    setBusy(rejectId);
+    try {
+      await communityAdminApi.reject(rejectId, rejectReason.trim() || undefined);
+      notificationHaptic('success');
+      setPosts(prev => prev.filter(p => p.id !== rejectId));
+      setRejectId(null);
+      setRejectReason('');
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось отклонить');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (loading) return <LoadingNote>Загружаем pending-посты…</LoadingNote>;
+  if (error)   return <ErrorBlock message={error} onRetry={load} />;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+        Постов в очереди: <b>{posts.length}</b>
+      </div>
+
+      {posts.length === 0 ? (
+        <Card style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)' }}>
+          Пока нечего модерировать
+        </Card>
+      ) : posts.map(p => (
+        <Card key={p.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                {p.author_name} · {p.girl_name ? `${p.girl_name} (${p.typazh})` : p.typazh}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                TG: {p.telegram_user_id} · {new Date(p.created_at).toLocaleString('ru-RU')}
+              </div>
+            </div>
+            {p.score != null && (
+              <div style={{
+                fontSize: 12, fontWeight: 700,
+                padding: '4px 8px', borderRadius: 8,
+                background: 'var(--accent-soft)', color: 'var(--text-accent)',
+              }}>
+                {p.score.toFixed ? p.score.toFixed(1) : p.score} / 10
+              </div>
+            )}
+          </div>
+
+          {/* Превью диалога */}
+          <div style={{
+            display: 'flex', flexDirection: 'column', gap: 4,
+            maxHeight: 200, overflowY: 'auto',
+            padding: 8,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 8,
+          }}>
+            {p.messages.map((m, i) => (
+              <div key={i} style={{ fontSize: 12, lineHeight: '17px' }}>
+                <b style={{ color: m.from === 'me' ? 'var(--text-accent)' : 'var(--text-secondary)' }}>
+                  {m.from === 'me' ? 'Юзер:' : (p.girl_name || p.typazh) + ':'}
+                </b>{' '}
+                <span style={{ color: 'var(--text-primary)' }}>{m.text}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Действия */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => onApprove(p.id)}
+              disabled={busy === p.id}
+              style={{
+                flex: 1, padding: '10px',
+                borderRadius: 10, border: 0,
+                background: 'var(--status-positive)', color: '#fff',
+                fontSize: 13, fontWeight: 700,
+                cursor: 'pointer',
+                opacity: busy === p.id ? 0.6 : 1,
+              }}
+            >
+              ✓ Одобрить
+            </button>
+            <button
+              onClick={() => { setRejectId(p.id); setRejectReason(''); }}
+              disabled={busy === p.id}
+              style={{
+                flex: 1, padding: '10px',
+                borderRadius: 10,
+                border: '1px solid var(--status-negative)',
+                background: 'transparent', color: 'var(--status-negative)',
+                fontSize: 13, fontWeight: 700,
+                cursor: 'pointer',
+                opacity: busy === p.id ? 0.6 : 1,
+              }}
+            >
+              ✕ Отклонить
+            </button>
+          </div>
+        </Card>
+      ))}
+
+      <div style={{ marginTop: 8 }}>
+        <SecondaryButton onClick={load} full>Обновить</SecondaryButton>
+      </div>
+
+      {/* Модалка ввода причины отклонения */}
+      {rejectId != null && (
+        <div onClick={() => setRejectId(null)} style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 200, padding: 20,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: '100%', maxWidth: 360,
+            background: 'var(--bg-card)',
+            borderRadius: 14,
+            padding: 18,
+            display: 'flex', flexDirection: 'column', gap: 10,
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+              Причина отклонения
+            </div>
+            <textarea
+              value={rejectReason}
+              onChange={e => setRejectReason(e.target.value)}
+              placeholder="Опционально — для своей истории"
+              rows={3}
+              style={{
+                width: '100%',
+                padding: 10,
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 8,
+                color: 'var(--text-primary)',
+                fontSize: 13,
+                resize: 'none',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setRejectId(null)} style={{
+                flex: 1, padding: 10, borderRadius: 8,
+                border: '1px solid var(--border-default)', background: 'transparent',
+                color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
+              }}>Отмена</button>
+              <button onClick={onReject} style={{
+                flex: 1, padding: 10, borderRadius: 8, border: 0,
+                background: 'var(--status-negative)', color: '#fff',
+                cursor: 'pointer', fontSize: 13, fontWeight: 700,
+              }}>Отклонить</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Styles ─────────────────────────────────────────────────────────────────

@@ -941,3 +941,67 @@ export interface AdminTimelineResp {
   last_updated_at: string;
   cached: boolean;
 }
+
+// ─── Community (лента с модерацией) ────────────────────────────────────────
+
+export interface CommunityMsg { from: 'me' | 'her'; text: string }
+
+export interface CommunityFeedPost {
+  id: number;
+  author_name: string;
+  girl_name: string | null;
+  typazh: string;
+  score: number | null;
+  likes_count: number;
+  liked: boolean;
+  created_at: string;
+  preview: CommunityMsg[];
+  messages_count: number;
+  has_analysis: boolean;
+}
+
+export interface CommunityFullPost extends Omit<CommunityFeedPost, 'preview' | 'messages_count' | 'has_analysis'> {
+  messages: CommunityMsg[];
+  analysis: any | null;
+}
+
+export const communityApi = {
+  feed: (limit = 20, offset = 0) =>
+    fetchAuthed<{ ok: boolean; posts: CommunityFeedPost[]; limit: number; offset: number }>(
+      `/community/feed?limit=${limit}&offset=${offset}`,
+    ),
+  getPost: (id: number) =>
+    fetchAuthed<{ ok: boolean; post: CommunityFullPost }>(`/community/posts/${id}`),
+  submit: (payload: {
+    girl_name?: string | null;
+    typazh: string;
+    messages: CommunityMsg[];
+    analysis?: any;
+    score?: number | null;
+  }) =>
+    fetchAuthed<{ ok: boolean; post_id: number; status: string; message: string; error?: string; code?: string }>(
+      '/community/submit',
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+  like: (id: number) =>
+    fetchAuthed<{ ok: boolean; liked: boolean; likes_count: number }>(
+      `/community/posts/${id}/like`, { method: 'POST' },
+    ),
+  unlike: (id: number) =>
+    fetchAuthed<{ ok: boolean; liked: boolean; likes_count: number }>(
+      `/community/posts/${id}/like`, { method: 'DELETE' },
+    ),
+};
+
+export const communityAdminApi = {
+  pending: () =>
+    fetchAuthed<{ ok: boolean; posts: Array<CommunityFullPost & { telegram_user_id: number }> }>(
+      '/admin/community/pending',
+    ),
+  approve: (id: number) =>
+    fetchAuthed<{ ok: boolean; already?: boolean }>(`/admin/community/${id}/approve`, { method: 'POST' }),
+  reject: (id: number, reason?: string) =>
+    fetchAuthed<{ ok: boolean }>(`/admin/community/${id}/reject`, {
+      method: 'POST', body: JSON.stringify({ reason }),
+    }),
+};
