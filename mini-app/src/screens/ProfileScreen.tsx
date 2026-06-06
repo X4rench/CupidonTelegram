@@ -33,7 +33,7 @@ const TIER_LABEL: Record<string, string> = {
 
 export function ProfileScreen() {
   const nav = useNavigate();
-  const { me } = useMe();
+  const { me, refresh } = useMe();
   const tgUser = getTgUser();
 
   const [stats, setStats] = useState<StatRow[]>([
@@ -42,6 +42,45 @@ export function ProfileScreen() {
     { label: 'Средний балл', value: '—' },
     { label: 'Дней в приложении', value: '1' },
   ]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Кнопка ручного обновления лимитов
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    selectionHaptic();
+    setRefreshing(true);
+    try {
+      await refresh();
+      // Параллельно обновим stats (общие счётчики за всё время)
+      const res = await getStats();
+      if (res?.ok) {
+        const s = res.stats;
+        setStats([
+          { label: 'Запросы', value: String(s.requests ?? 0) },
+          { label: 'Симуляции', value: String(s.simulations ?? 0) },
+          { label: 'Средний балл', value: s.avg_score != null ? s.avg_score.toFixed(1) : '—' },
+          { label: 'Дней в приложении', value: String(s.days_in_app ?? 1) },
+        ]);
+      }
+    } catch (_) {}
+    finally { setRefreshing(false); }
+  };
+
+  // Авто-обновление при возврате на экран — когда юзер делает запрос на
+  // другом экране и возвращается в Профиль, видим актуальный счётчик.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        refresh().catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [refresh]);
 
   useEffect(() => {
     getStats()
@@ -187,13 +226,40 @@ export function ProfileScreen() {
         <Card style={styles.limitsCard}>
           <div style={styles.limitsHeader}>
             <span style={styles.limitsTitle}>Лимиты сегодня</span>
-            <button
-              onClick={() => { selectionHaptic(); nav('/paywall'); }}
-              style={styles.limitsUpgradeBtn}
-            >
-              Улучшить →
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                style={{
+                  ...styles.limitsRefreshBtn,
+                  opacity: refreshing ? 0.5 : 1,
+                  cursor: refreshing ? 'default' : 'pointer',
+                }}
+                aria-label="Обновить лимиты"
+              >
+                <svg
+                  width={14} height={14} viewBox="0 0 24 24"
+                  fill="none" stroke="var(--text-accent)" strokeWidth={2.2}
+                  strokeLinecap="round" strokeLinejoin="round"
+                  style={{
+                    animation: refreshing ? 'spin 0.9s linear infinite' : undefined,
+                    transformOrigin: 'center',
+                  }}
+                >
+                  <path d="M23 4v6h-6" />
+                  <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                </svg>
+              </button>
+              <button
+                onClick={() => { selectionHaptic(); nav('/paywall'); }}
+                style={styles.limitsUpgradeBtn}
+              >
+                Улучшить →
+              </button>
+            </div>
           </div>
+          {/* Анимация спина для иконки refresh — иначе rotate не работает */}
+          <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
           <LimitBar
             label="⚡ Запросы"
             used={me?.daily_used ?? 0}
@@ -477,6 +543,15 @@ const styles: Record<string, CSSProperties> = {
     background: 'transparent', border: 0,
     color: 'var(--text-accent)', fontSize: 12, fontWeight: 600,
     padding: 4, cursor: 'pointer',
+  },
+  limitsRefreshBtn: {
+    width: 26, height: 26,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    background: 'var(--accent-soft)',
+    border: '1px solid var(--border-accent)',
+    borderRadius: 8,
+    padding: 0,
+    transition: 'opacity 160ms',
   },
   bonusHint: {
     marginTop: 4, padding: '8px 10px',
