@@ -261,8 +261,8 @@ export function FirstMessageScreen() {
             {/* Кнопка «Сгенерировать заново» снизу — для случая когда юзер
                 поменял теги/имя/профиль и хочет полный новый запрос */}
             <div style={{ marginTop: 8 }}>
-              <SecondaryButton onClick={handleSubmit} loading={loading} full>
-                Сгенерировать новые с другими параметрами
+              <SecondaryButton onClick={handleSubmit} disabled={loading} full>
+                {loading ? 'AI думает…' : 'Сгенерировать новые с другими параметрами'}
               </SecondaryButton>
             </div>
           </div>
