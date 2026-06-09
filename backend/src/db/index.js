@@ -279,8 +279,25 @@ export function run(sql, ...params) {
 export function exec(sql) {
   return db.exec(sql);
 }
+/**
+ * Возвращает transaction-функцию better-sqlite3 — её ещё нужно вызвать
+ * чтобы выполнить fn внутри транзакции:
+ *
+ *   db.transaction(() => {
+ *     db.run(...);
+ *     db.run(...);
+ *   })();   ← вот это () запускает транзакцию
+ *
+ * Совместимо с нативным API better-sqlite3 — все callsites в проекте
+ * написаны под этот паттерн.
+ *
+ * (Раньше wrapper выглядел как `return db.transaction(fn)()` — сразу
+ * вызывал. Это ломало все callsites вида `db.transaction(...)()`
+ * потому что они делали лишний `()` поверх уже-вызванного fn.
+ * Симптомы: TypeError: db.transaction(...) is not a function.)
+ */
 export function transaction(fn) {
-  return db.transaction(fn)();
+  return db.transaction(fn);
 }
 
 export default { all, get, run, exec, transaction, raw: db };
