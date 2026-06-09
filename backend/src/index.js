@@ -27,6 +27,7 @@ import pollsRouter        from './routes/polls.js';
 import paymentsRouter     from './routes/payments.js';
 import partnersRouter     from './routes/partners.js';
 import { communityRouter, communityAdminRouter } from './routes/community.js';
+import diagRouter         from './routes/diag.js';
 import telegramRouter     from './routes/telegram.js'; // /telegram/webhook
 import yookassaRouter     from './routes/yookassa.js'; // /yookassa/webhook
 
@@ -163,6 +164,7 @@ app.use('/api/v1/polls',         pollsRouter);
 app.use('/api/v1/payments',      paymentsRouter);
 app.use('/api/v1/community',         communityRouter);
 app.use('/api/v1/admin/community',   communityAdminRouter);
+app.use('/api/v1/diag',              diagRouter);
 // Партнёрка: /api/v1/partner/* + /api/v1/admin/partners/*
 // Сам роутер сам решает кто партнёр (requirePartner) или админ (requireAdmin).
 app.use('/api/v1',               partnersRouter);

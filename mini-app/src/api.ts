@@ -968,6 +968,15 @@ export interface CommunityFullPost extends Omit<CommunityFeedPost, 'preview' | '
   analysis: any | null;
 }
 
+/** Diagnostic logging — слать на бэк что попало для отладки. */
+export function clientDiag(context: string, data?: any): void {
+  // Fire-and-forget — не блокируем UI, ошибку глотаем
+  fetchAuthed('/diag/client-log', {
+    method: 'POST',
+    body: JSON.stringify({ context, data }),
+  }).catch(() => {});
+}
+
 export const communityApi = {
   feed: (limit = 20, offset = 0) =>
     fetchAuthed<{ ok: boolean; posts: CommunityFeedPost[]; limit: number; offset: number }>(

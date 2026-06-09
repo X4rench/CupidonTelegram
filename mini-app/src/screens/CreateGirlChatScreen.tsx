@@ -18,10 +18,11 @@ import {
   startSimulator,
   sendAiGirlMessage,
   analyzeSimulator,
+  clientDiag,
   ApiError,
 } from '../api';
 import { storage } from '../utils/storage';
-import { findCustomGirl } from '../utils/customGirls';
+import { findCustomGirl, loadCustomGirls } from '../utils/customGirls';
 import { idbGetPhotoUrl } from '../utils/indexedDB';
 import { useBackButton } from '../utils/backButton';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
@@ -97,12 +98,47 @@ export function CreateGirlChatScreen() {
   }, [aiLoading, nav]);
   useBackButton(onBack);
 
+  // Диагностика: если девушка не нашлась — собираем подробный context
+  // и шлём в /diag/client-log. Так мы (админ) увидим какие girls есть
+  // в storage юзера и почему искомый id не нашёлся. Делаем 1 раз через
+  // ref-flag чтобы не спамить при каждом render.
+  const diagSentRef = useRef(false);
+  useEffect(() => {
+    if (girl || diagSentRef.current || !decodedId) return;
+    diagSentRef.current = true;
+    try {
+      const tg: any = (window as any)?.Telegram?.WebApp;
+      const all = loadCustomGirls();
+      const lsKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && /custom_girls/.test(k)) lsKeys.push(k);
+      }
+      clientDiag('create_girl_not_found', {
+        requested_id: decodedId,
+        url_param_raw: girlId,
+        stored_count: all.length,
+        stored_ids: all.map(g => g.id).slice(0, 10),
+        stored_names: all.map(g => g.name).slice(0, 10),
+        ls_keys_matching_custom_girls: lsKeys,
+        ls_total_keys: localStorage.length,
+        tg_init_user_id: tg?.initDataUnsafe?.user?.id || null,
+        tg_platform: tg?.platform || null,
+        tg_version: tg?.version || null,
+        path: window.location.pathname,
+      });
+    } catch (_) {}
+  }, [girl, decodedId, girlId]);
+
   if (!girl) {
     return (
       <div style={{ padding: 24 }}>
         <Card style={{ borderColor: 'var(--status-negative)' }}>
           <p style={{ margin: 0, fontSize: 14, color: 'var(--text-primary)' }}>
             Девушка не найдена. Создай новую.
+          </p>
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>
+            ID в URL: <code style={{ fontFamily: 'ui-monospace, monospace' }}>{decodedId || '(пусто)'}</code>
           </p>
         </Card>
         <div style={{ marginTop: 12 }}>
