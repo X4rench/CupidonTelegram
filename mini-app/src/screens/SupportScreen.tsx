@@ -2,7 +2,7 @@
 // SupportScreen — «Поддержи её». Сгенерировать поддерживающие сообщения.
 // POST /analysis/support → responses[] (текст вариантов поддержки)
 // ═══════════════════════════════════════════════════════════════
-import { useState, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { Card } from '../components/Card';
@@ -13,8 +13,11 @@ import { AutoGrowTextarea } from '../components/AutoGrowTextarea';
 import { IOSPasteHint } from '../components/IOSPasteHint';
 import { LimitReachedSheet, type LimitReason } from '../components/LimitReachedSheet';
 import { useBackButton } from '../utils/backButton';
-import { impactHaptic, notificationHaptic } from '../utils/haptics';
+import { impactHaptic, notificationHaptic, selectionHaptic } from '../utils/haptics';
 import { generateSupport, ApiError } from '../api';
+
+const PAGE_SIZE = 3;
+const REGEN_LIMIT = 2; // итого 3 страницы (если AI вернёт 9+)
 
 const SUPPORT_TAGS = [
   'грусть', 'обида', 'злость', 'усталость', 'болезнь',
@@ -30,6 +33,8 @@ export function SupportScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<string[]>([]);
+  const [page, setPage] = useState(0);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [limitSheet, setLimitSheet] = useState<LimitReason | null>(null);
 
   const toggleTag = (t: string) => {
@@ -47,6 +52,8 @@ export function SupportScreen() {
     setLoading(true);
     setError(null);
     setResults([]);
+    setPage(0);
+    setCopiedIdx(null);
     try {
       const res = await generateSupport({ situationText: trimmed, tags, withContext: false });
       const msgs: string[] = Array.isArray((res as any).responses)
@@ -67,12 +74,29 @@ export function SupportScreen() {
     }
   };
 
-  const copyToClipboard = async (text: string) => {
+  const copyText = async (text: string, idx: number) => {
     try {
       await navigator.clipboard.writeText(text);
       impactHaptic('light');
+      setCopiedIdx(idx);
+      setTimeout(() => setCopiedIdx(prev => prev === idx ? null : prev), 1400);
     } catch (_) {}
   };
+
+  const onRegenerate = () => {
+    if (page >= REGEN_LIMIT) return;
+    impactHaptic('light');
+    setPage(p => Math.min(p + 1, REGEN_LIMIT));
+    setCopiedIdx(null);
+  };
+
+  const visibleResults = useMemo(
+    () => results.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE),
+    [results, page],
+  );
+
+  const hasResults = results.length > 0;
+  const totalPages = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
 
   return (
     <Layout>
@@ -94,7 +118,7 @@ export function SupportScreen() {
         </Card>
         <IOSPasteHint />
 
-        <label style={styles.label}>Что у неё (опц.)</label>
+        <label style={styles.label}>Что она сейчас чувствует (опц.)</label>
         <div style={styles.tagsRow}>
           {SUPPORT_TAGS.map(t => (
             <Chip key={t} active={tags.includes(t)} onClick={() => toggleTag(t)}>
@@ -103,11 +127,15 @@ export function SupportScreen() {
           ))}
         </div>
 
-        <div style={{ marginTop: 16 }}>
-          <GradientButton full loading={loading} onClick={handleSubmit}>
-            {loading ? 'AI пишет…' : 'Сгенерировать'}
-          </GradientButton>
-        </div>
+        {/* Кнопка «Сгенерировать» прячется после успеха — далее
+            используем «Ещё» в блоке результатов (как в Стреле). */}
+        {!hasResults && (
+          <div style={{ marginTop: 16 }}>
+            <GradientButton full loading={loading} onClick={handleSubmit}>
+              {loading ? 'AI пишет…' : 'Сгенерировать'}
+            </GradientButton>
+          </div>
+        )}
 
         {error && (
           <Card style={{ marginTop: 16, borderColor: 'var(--status-negative)' }}>
@@ -118,15 +146,71 @@ export function SupportScreen() {
           </Card>
         )}
 
-        {results.length > 0 && (
+        {hasResults && (
           <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={styles.resultsTitle}>Варианты поддержки</div>
-            {results.map((text, i) => (
-              <Card key={i}>
-                <p style={styles.resultText}>{text}</p>
-                <button onClick={() => copyToClipboard(text)} style={styles.copyBtn}>
-                  Скопировать
+            <div style={styles.resultsHeader}>
+              <span style={styles.resultsTitle}>
+                Варианты {page + 1} / {totalPages}
+              </span>
+              <button
+                onClick={onRegenerate}
+                disabled={page >= REGEN_LIMIT || loading}
+                style={{
+                  ...styles.regenBtn,
+                  opacity: page >= REGEN_LIMIT ? 0.5 : 1,
+                  cursor: page >= REGEN_LIMIT ? 'default' : 'pointer',
+                }}
+              >
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
+                     stroke={page >= REGEN_LIMIT ? 'var(--text-muted)' : 'var(--text-accent)'}
+                     strokeWidth={2} strokeLinecap="round">
+                  <path d="M23 4v6h-6" />
+                  <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                </svg>
+                <span style={{
+                  fontSize: 12,
+                  color: page >= REGEN_LIMIT ? 'var(--text-muted)' : 'var(--text-accent)',
+                }}>
+                  {page >= REGEN_LIMIT ? 'Лимит' : 'Ещё'}
+                </span>
+              </button>
+            </div>
+
+            <div style={styles.pagination}>
+              {Array.from({ length: totalPages }).map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => { selectionHaptic(); setPage(i); setCopiedIdx(null); }}
+                  style={{
+                    ...styles.paginationDot,
+                    background: i === page ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                  }}
+                  aria-label={`Страница ${i + 1}`}
+                />
+              ))}
+            </div>
+
+            {visibleResults.map((text, i) => (
+              <Card key={`p${page}-${i}`} style={styles.responseCard}>
+                <button
+                  onClick={() => copyText(text, i)}
+                  style={styles.copyIconBtn}
+                  aria-label="Скопировать"
+                >
+                  {copiedIdx === i ? (
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
+                         stroke="var(--status-positive)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20,6 9,17 4,12" />
+                    </svg>
+                  ) : (
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
+                         stroke="var(--text-muted)" strokeWidth={2}>
+                      <rect x={9} y={9} width={13} height={13} rx={2} />
+                      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                    </svg>
+                  )}
                 </button>
+                <p style={styles.resultText}>{text}</p>
               </Card>
             ))}
           </div>
@@ -148,7 +232,40 @@ const styles: Record<string, CSSProperties> = {
   label:        { display: 'block', marginTop: 20, marginBottom: 8, fontSize: 13, color: 'var(--text-secondary)' },
   inputCard:    { padding: '8px 12px' },
   tagsRow:      { display: 'flex', flexWrap: 'wrap', gap: 8 },
-  resultsTitle: { fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 },
-  resultText:   { margin: 0, fontSize: 15, lineHeight: 1.5, whiteSpace: 'pre-wrap' },
-  copyBtn:      { marginTop: 12, padding: '8px 16px', borderRadius: 8, background: 'var(--accent-soft)', color: 'var(--text-accent)', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
+  resultsHeader: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  },
+  resultsTitle: {
+    fontSize: 13, color: 'var(--text-muted)',
+    textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700,
+  },
+  regenBtn: {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '6px 10px',
+    border: '1px solid var(--border-accent)',
+    background: 'var(--accent-soft)',
+    borderRadius: 8,
+    cursor: 'pointer',
+  },
+  pagination: {
+    display: 'flex', gap: 6, justifyContent: 'center',
+  },
+  paginationDot: {
+    width: 24, height: 4, borderRadius: 2,
+    border: 0, cursor: 'pointer', padding: 0,
+  },
+  responseCard: {
+    position: 'relative',
+    paddingRight: 40,
+  },
+  copyIconBtn: {
+    position: 'absolute',
+    top: 10, right: 10,
+    width: 28, height: 28,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    border: 0, borderRadius: 8,
+    background: 'var(--bg-elevated)',
+    cursor: 'pointer',
+  },
+  resultText:   { margin: 0, fontSize: 15, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: 'var(--text-primary)' },
 };
