@@ -10,6 +10,7 @@ import { Layout } from '../components/Layout';
 import { Card } from '../components/Card';
 import { Chip } from '../components/Chip';
 import { GradientButton } from '../components/GradientButton';
+import { DifficultySlider } from '../components/DifficultySlider';
 import { TYPAZHES, MAX_TYPAZHES } from '../utils/typazhes';
 import { addCustomGirl, type CustomGirl } from '../utils/customGirls';
 import { idbPutPhoto, idbGetPhotoUrl, resizeImage } from '../utils/indexedDB';
@@ -39,6 +40,7 @@ export function CreateGirlScreen() {
   const [commStyle, setCommStyle] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [difficulty, setDifficulty] = useState(5);
   const [photoBlobId, setPhotoBlobId] = useState<string | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string>('');
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -93,6 +95,7 @@ export function CreateGirlScreen() {
         description,
         color: 'rgba(236,72,153',
         photoBlobId,
+        difficulty,
       };
       // addCustomGirl теперь бросит Error если не смогло записать
       // (localStorage переполнен / приватный режим браузера / etc).
@@ -181,6 +184,12 @@ export function CreateGirlScreen() {
               <Chip key={s} active={commStyle === s} onClick={() => setCommStyle(commStyle === s ? null : s)}>{s}</Chip>
             ))}
           </div>
+        </Section>
+
+        {/* Сложность — 1..10 как в симуляторе. Передаётся в startSimulator
+            при первом старте чата с этой девушкой. */}
+        <Section title="Сложность">
+          <DifficultySlider value={difficulty} onChange={setDifficulty} min={1} max={10} />
         </Section>
 
         {/* Имя */}

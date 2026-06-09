@@ -66,7 +66,7 @@ export function CreateGirlChatScreen() {
     startSimulator({
       typazh: girl.typazh || girl.typazhes?.[0] || 'AI',
       place: 'Переписка',
-      difficulty: 5,
+      difficulty: girl.difficulty ?? 5,
     })
       .then(res => {
         setSessionId(res.session_id);

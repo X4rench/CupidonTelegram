@@ -18,6 +18,9 @@ export interface CustomGirl {
   description?: string;
   color?: string;
   photoBlobId?: string | null;     // ключ в IndexedDB (re-resolve в URL.createObjectURL на mount)
+  /** Сложность 1..10 — передаётся в startSimulator при старте чата.
+      Default 5 если не задано (legacy девушки без поля). */
+  difficulty?: number;
 }
 
 const KEY = 'custom_girls';
