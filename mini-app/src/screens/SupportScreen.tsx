@@ -19,6 +19,31 @@ import { generateSupport, ApiError } from '../api';
 const PAGE_SIZE = 3;
 const REGEN_LIMIT = 2; // итого 3 страницы (если AI вернёт 9+)
 
+/**
+ * Перетасовываем варианты по level так, чтобы на каждой странице был
+ * один лёгкий + один уверенный + один дерзкий (если их есть).
+ * Точно как Wing.interleaveResponses по badge.
+ */
+type SupportItem = { text: string; level?: string };
+function interleaveByLevel(items: SupportItem[]): SupportItem[] {
+  if (!items.length) return [];
+  const ORDER = ['ЛЁГКИЙ', 'УВЕРЕННЫЙ', 'ДЕРЗКИЙ'];
+  const buckets: SupportItem[][] = [[], [], []];
+  const others: SupportItem[] = [];
+  for (const r of items) {
+    const idx = ORDER.indexOf(String(r.level || '').toUpperCase());
+    if (idx >= 0) buckets[idx].push(r);
+    else others.push(r);
+  }
+  if (buckets[0].length + buckets[1].length + buckets[2].length === 0) return items;
+  const out: SupportItem[] = [];
+  const maxLen = Math.max(buckets[0].length, buckets[1].length, buckets[2].length);
+  for (let i = 0; i < maxLen; i++) {
+    for (let c = 0; c < 3; c++) if (buckets[c][i]) out.push(buckets[c][i]);
+  }
+  return out.concat(others);
+}
+
 const SUPPORT_TAGS = [
   'грусть', 'обида', 'злость', 'усталость', 'болезнь',
   'тревога', 'ссора с близкими', 'неуверенность', 'выгорание',
@@ -33,9 +58,15 @@ export function SupportScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // ResultItem хранит text + level — точно как в Стреле text+why.
-  type ResultItem = { text: string; level?: string };
+  type ResultItem = SupportItem;
   const [results, setResults] = useState<ResultItem[]>([]);
-  const [page, setPage] = useState(0);
+  // Логика страниц — точно как в Стреле (responsePage + regenCount):
+  //   - responsePage: текущая страница (индекс)
+  //   - regenCount:   сколько раз нажат «Ещё» (totalPages = regenCount + 1)
+  // Изначально totalPages = 1 (показана только первая страница);
+  // после первого «Ещё» появляется вторая, после второго — третья.
+  const [responsePage, setResponsePage] = useState(0);
+  const [regenCount, setRegenCount] = useState(0);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [limitSheet, setLimitSheet] = useState<LimitReason | null>(null);
 
@@ -54,7 +85,8 @@ export function SupportScreen() {
     setLoading(true);
     setError(null);
     setResults([]);
-    setPage(0);
+    setResponsePage(0);
+    setRegenCount(0);
     setCopiedIdx(null);
     try {
       const res = await generateSupport({ situationText: trimmed, tags, withContext: false });
@@ -98,20 +130,34 @@ export function SupportScreen() {
     } catch (_) {}
   };
 
-  const onRegenerate = () => {
-    if (page >= REGEN_LIMIT) return;
+  // refreshResponses — точная копия Wing: инкрементит И page, И regenCount.
+  // После REGEN_LIMIT нажатий кнопка disabled («Лимит»).
+  const refreshResponses = () => {
+    if (regenCount >= REGEN_LIMIT) return;
     impactHaptic('light');
-    setPage(p => Math.min(p + 1, REGEN_LIMIT));
+    setResponsePage(p => p + 1);
+    setRegenCount(c => c + 1);
     setCopiedIdx(null);
   };
 
-  const visibleResults = useMemo(
-    () => results.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE),
-    [results, page],
-  );
+  // goToResponsePage — точная копия Wing: skip если та же страница,
+  // selectionHaptic при переключении.
+  const goToResponsePage = (i: number) => {
+    if (i === responsePage) return;
+    selectionHaptic();
+    setResponsePage(i);
+    setCopiedIdx(null);
+  };
+
+  // Interleave — варианты идут по «лёгкий-уверенный-дерзкий, лёгкий-...»
+  // Каждая страница содержит по одному из каждого типа (если хватает).
+  const orderedResults = useMemo(() => interleaveByLevel(results), [results]);
+  const visibleResults = orderedResults.slice(responsePage * PAGE_SIZE, responsePage * PAGE_SIZE + PAGE_SIZE);
 
   const hasResults = results.length > 0;
-  const totalPages = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
+  // totalPages раскрывается ПО МЕРЕ нажатий «Ещё» — как в Стреле.
+  // Изначально =1 (одна страница), после каждого refresh +1, max = REGEN_LIMIT+1.
+  const totalPages = regenCount + 1;
 
   return (
     <Layout>
@@ -165,28 +211,28 @@ export function SupportScreen() {
           <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={styles.resultsHeader}>
               <span style={styles.resultsTitle}>
-                Варианты {page + 1} / {totalPages}
+                Варианты {responsePage + 1} / {totalPages}
               </span>
               <button
-                onClick={onRegenerate}
-                disabled={page >= REGEN_LIMIT || loading}
+                onClick={refreshResponses}
+                disabled={regenCount >= REGEN_LIMIT || loading}
                 style={{
                   ...styles.regenBtn,
-                  opacity: page >= REGEN_LIMIT ? 0.5 : 1,
-                  cursor: page >= REGEN_LIMIT ? 'default' : 'pointer',
+                  opacity: regenCount >= REGEN_LIMIT ? 0.5 : 1,
+                  cursor: regenCount >= REGEN_LIMIT ? 'default' : 'pointer',
                 }}
               >
                 <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
-                     stroke={page >= REGEN_LIMIT ? 'var(--text-muted)' : 'var(--text-accent)'}
+                     stroke={regenCount >= REGEN_LIMIT ? 'var(--text-muted)' : 'var(--text-accent)'}
                      strokeWidth={2} strokeLinecap="round">
                   <path d="M23 4v6h-6" />
                   <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
                 </svg>
                 <span style={{
                   fontSize: 12,
-                  color: page >= REGEN_LIMIT ? 'var(--text-muted)' : 'var(--text-accent)',
+                  color: regenCount >= REGEN_LIMIT ? 'var(--text-muted)' : 'var(--text-accent)',
                 }}>
-                  {page >= REGEN_LIMIT ? 'Лимит' : 'Ещё'}
+                  {regenCount >= REGEN_LIMIT ? 'Лимит' : 'Ещё'}
                 </span>
               </button>
             </div>
@@ -195,10 +241,10 @@ export function SupportScreen() {
               {Array.from({ length: totalPages }).map((_, i) => (
                 <button
                   key={i}
-                  onClick={() => { selectionHaptic(); setPage(i); setCopiedIdx(null); }}
+                  onClick={() => goToResponsePage(i)}
                   style={{
                     ...styles.paginationDot,
-                    background: i === page ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                    background: i === responsePage ? 'var(--accent-primary)' : 'var(--border-subtle)',
                   }}
                   aria-label={`Страница ${i + 1}`}
                 />
@@ -207,7 +253,7 @@ export function SupportScreen() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {visibleResults.map((r, i) => (
-                <div key={`p${page}-${i}`} style={styles.responseItem}>
+                <div key={`p${responsePage}-${i}`} style={styles.responseItem}>
                   <button
                     onClick={() => copyText(r.text, i)}
                     style={styles.copyBtn}
