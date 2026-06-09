@@ -27,8 +27,14 @@ export const storage = {
   set(name: string, value: unknown): void {
     try {
       localStorage.setItem(key(name), JSON.stringify(value));
-    } catch (_) {
-      // QuotaExceeded или приватный режим — молча игнорируем
+    } catch (e: any) {
+      // QuotaExceeded или приватный режим — раньше игнорировали молча,
+      // что приводило к багам типа «создал девушку → её нет». Теперь
+      // логируем, чтобы потом в console можно было увидеть причину.
+      // Caller (например addCustomGirl) сам делает verify и бросает Error.
+      try {
+        console.error('[storage] setItem failed:', name, e?.name || '', e?.message || '');
+      } catch (_) {}
     }
   },
 

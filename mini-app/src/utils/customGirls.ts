@@ -31,10 +31,24 @@ export function saveCustomGirls(list: CustomGirl[]): void {
   storage.set(KEY, list);
 }
 
+/**
+ * Добавляет девушку в storage. Возвращает обновлённый список.
+ * Если запись не прошла верификацию (storage переполнен и т.п.) — бросает
+ * Error с понятным сообщением, чтобы UI мог показать его юзеру.
+ */
 export function addCustomGirl(g: CustomGirl): CustomGirl[] {
   const list = loadCustomGirls();
   const next = [...list, g];
   saveCustomGirls(next);
+  // Верификация: storage.set может молча упасть (QuotaExceeded и т.п.).
+  // Перечитываем — если новая девушка не нашлась, говорим юзеру.
+  const verify = loadCustomGirls();
+  if (!verify.some(x => x.id === g.id)) {
+    throw new Error(
+      'Не удалось сохранить девушку — память Mini App переполнена. ' +
+      'Очисти кэш Telegram (Settings → Storage → Clear Cache) и попробуй снова.'
+    );
+  }
   return next;
 }
 

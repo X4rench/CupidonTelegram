@@ -43,6 +43,7 @@ export function CreateGirlScreen() {
   const [photoUrl, setPhotoUrl] = useState<string>('');
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Re-resolve blob:URL когда меняется photoBlobId (§5.1)
   useEffect(() => {
@@ -79,6 +80,7 @@ export function CreateGirlScreen() {
   const startChat = async () => {
     if (saving) return;
     setSaving(true);
+    setError(null);
     try {
       const girl: CustomGirl = {
         id: `girl_${Date.now()}`,
@@ -92,9 +94,14 @@ export function CreateGirlScreen() {
         color: 'rgba(236,72,153',
         photoBlobId,
       };
+      // addCustomGirl теперь бросит Error если не смогло записать
+      // (localStorage переполнен / приватный режим браузера / etc).
       addCustomGirl(girl);
       notificationHaptic('success');
       nav(`/create-girl/chat/${encodeURIComponent(girl.id)}`);
+    } catch (e: any) {
+      console.error('[CreateGirl] save failed:', e);
+      setError(e?.message || 'Не удалось сохранить. Попробуй снова или очисть кэш Mini App.');
     } finally {
       setSaving(false);
     }
@@ -196,6 +203,21 @@ export function CreateGirlScreen() {
             rows={4}
           />
         </Section>
+
+        {error && (
+          <div style={{
+            marginTop: 8,
+            padding: '12px 14px',
+            background: 'rgba(245,158,11,0.10)',
+            border: '1px solid rgba(245,158,11,0.30)',
+            borderRadius: 12,
+            fontSize: 13, lineHeight: '18px',
+            color: 'var(--text-secondary)',
+          }}>
+            <b style={{ color: 'var(--status-warning, #F59E0B)' }}>ⓘ </b>
+            {error}
+          </div>
+        )}
 
         <div style={{ marginTop: 8 }}>
           <GradientButton onClick={startChat} disabled={saving} loading={saving} full>
