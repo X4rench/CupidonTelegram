@@ -252,27 +252,32 @@ const styles: Record<string, CSSProperties> = {
   label:        { display: 'block', marginTop: 20, marginBottom: 8, fontSize: 13, color: 'var(--text-secondary)' },
   inputCard:    { padding: '8px 12px' },
   tagsRow:      { display: 'flex', flexWrap: 'wrap', gap: 8 },
+  // Шапка результатов — точно как в WingScreen.styles.responsesHeader
   resultsHeader: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 4,
   },
+  // Заголовок «Варианты N / 3» — как WingScreen.styles.sectionLabel
   resultsTitle: {
-    fontSize: 13, color: 'var(--text-muted)',
-    textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700,
+    fontSize: 14, fontWeight: 600,
+    color: 'var(--text-primary)',
+    display: 'block',
   },
+  // Кнопка «↻ Ещё / Лимит» — простая ссылка без рамки/фона, как WingScreen.refreshBtn
   regenBtn: {
-    display: 'inline-flex', alignItems: 'center', gap: 6,
-    padding: '6px 10px',
-    border: '1px solid var(--border-accent)',
-    background: 'var(--accent-soft)',
-    borderRadius: 8,
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    background: 'transparent',
+    border: 0, padding: 0,
     cursor: 'pointer',
   },
+  // Пагинация — 3 тонкие полоски на всю ширину, как WingScreen.pagination
   pagination: {
-    display: 'flex', gap: 6, justifyContent: 'center',
+    display: 'flex', gap: 4,
+    marginBottom: 8,
   },
   paginationDot: {
-    width: 24, height: 4, borderRadius: 2,
-    border: 0, cursor: 'pointer', padding: 0,
+    flex: 1, height: 3, borderRadius: 2,
+    border: 0, padding: 0, cursor: 'pointer',
   },
   // Стрело-аналогичный responseItem — bg-elevated div, не Card.
   responseItem: {
