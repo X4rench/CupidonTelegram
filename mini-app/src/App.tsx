@@ -85,7 +85,7 @@ export default function App() {
             <Route path="/simulator/chat/:id"   element={<SimulatorChatScreen />} />
             <Route path="/simulator/result/:id" element={<SimulatorResultScreen />} />
             <Route path="/create-girl"          element={<CreateGirlScreen />} />
-            <Route path="/create-girl/chat/:id" element={<CreateGirlChatScreen />} />
+            <Route path="/create-girl/chat/:girlId" element={<CreateGirlChatScreen />} />
             <Route path="/all-dialogs"          element={<AllDialogsScreen />} />
             <Route path="/first-message"        element={<FirstMessageScreen />} />
             <Route path="/rejection"            element={<RejectionScreen />} />
