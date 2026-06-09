@@ -32,7 +32,9 @@ export function SupportScreen() {
   const [tags, setTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [results, setResults] = useState<string[]>([]);
+  // ResultItem хранит text + level — точно как в Стреле text+why.
+  type ResultItem = { text: string; level?: string };
+  const [results, setResults] = useState<ResultItem[]>([]);
   const [page, setPage] = useState(0);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [limitSheet, setLimitSheet] = useState<LimitReason | null>(null);
@@ -56,10 +58,13 @@ export function SupportScreen() {
     setCopiedIdx(null);
     try {
       const res = await generateSupport({ situationText: trimmed, tags, withContext: false });
-      const msgs: string[] = Array.isArray((res as any).responses)
-        ? (res as any).responses.map((r: any) => typeof r === 'string' ? r : (r?.text || ''))
+      const items: ResultItem[] = Array.isArray((res as any).responses)
+        ? (res as any).responses.map((r: any) => {
+            if (typeof r === 'string') return { text: r };
+            return { text: r?.text || '', level: r?.level };
+          }).filter((r: ResultItem) => r.text)
         : [];
-      setResults(msgs.filter(Boolean));
+      setResults(items);
       notificationHaptic('success');
     } catch (e: any) {
       if (e instanceof ApiError && e.status === 429) {
@@ -72,6 +77,16 @@ export function SupportScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Человекочитаемый level → подсказка под текстом (как why в Стреле)
+  const levelHint = (level?: string): string => {
+    if (!level) return '';
+    const L = level.toUpperCase();
+    if (L === 'ЛЁГКИЙ')    return 'лёгкая поддержка — снимает напряжение, без давления';
+    if (L === 'УВЕРЕННЫЙ') return 'уверенная поддержка — даёт ощущение опоры';
+    if (L === 'ДЕРЗКИЙ')   return 'дерзкая поддержка — выдёргивает из переживаний с улыбкой';
+    return level.toLowerCase();
   };
 
   const copyText = async (text: string, idx: number) => {
@@ -190,29 +205,34 @@ export function SupportScreen() {
               ))}
             </div>
 
-            {visibleResults.map((text, i) => (
-              <Card key={`p${page}-${i}`} style={styles.responseCard}>
-                <button
-                  onClick={() => copyText(text, i)}
-                  style={styles.copyIconBtn}
-                  aria-label="Скопировать"
-                >
-                  {copiedIdx === i ? (
-                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
-                         stroke="var(--status-positive)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20,6 9,17 4,12" />
-                    </svg>
-                  ) : (
-                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
-                         stroke="var(--text-muted)" strokeWidth={2}>
-                      <rect x={9} y={9} width={13} height={13} rx={2} />
-                      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                    </svg>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {visibleResults.map((r, i) => (
+                <div key={`p${page}-${i}`} style={styles.responseItem}>
+                  <button
+                    onClick={() => copyText(r.text, i)}
+                    style={styles.copyBtn}
+                    aria-label="Скопировать"
+                  >
+                    {copiedIdx === i ? (
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
+                           stroke="var(--status-positive)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20,6 9,17 4,12" />
+                      </svg>
+                    ) : (
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
+                           stroke="var(--text-muted)" strokeWidth={2}>
+                        <rect x={9} y={9} width={13} height={13} rx={2} />
+                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                      </svg>
+                    )}
+                  </button>
+                  <p style={styles.responseText}>{r.text}</p>
+                  {r.level && (
+                    <p style={styles.responseWhy}>{levelHint(r.level)}</p>
                   )}
-                </button>
-                <p style={styles.resultText}>{text}</p>
-              </Card>
-            ))}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -254,18 +274,23 @@ const styles: Record<string, CSSProperties> = {
     width: 24, height: 4, borderRadius: 2,
     border: 0, cursor: 'pointer', padding: 0,
   },
-  responseCard: {
+  // Стрело-аналогичный responseItem — bg-elevated div, не Card.
+  responseItem: {
     position: 'relative',
-    paddingRight: 40,
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 12,
+    padding: 12,
+    paddingRight: 36,
   },
-  copyIconBtn: {
+  copyBtn: {
     position: 'absolute',
     top: 10, right: 10,
-    width: 28, height: 28,
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    border: 0, borderRadius: 8,
-    background: 'var(--bg-elevated)',
+    padding: 4,
+    background: 'transparent',
     cursor: 'pointer',
+    border: 0,
   },
-  resultText:   { margin: 0, fontSize: 15, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: 'var(--text-primary)' },
+  responseText: { margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--text-primary)' },
+  responseWhy:  { margin: '6px 0 0', fontSize: 11, color: 'var(--text-muted)', lineHeight: '15px' },
 };
