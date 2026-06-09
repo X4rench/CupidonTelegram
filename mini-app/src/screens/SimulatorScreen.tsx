@@ -13,6 +13,8 @@ import { Card } from '../components/Card';
 import { Chip } from '../components/Chip';
 import { GradientButton } from '../components/GradientButton';
 import { DifficultySlider } from '../components/DifficultySlider';
+import { DialogActionsMenu } from '../components/DialogActionsMenu';
+import { deleteSimSession } from '../utils/dialogActions';
 import { startSimulator, ApiError } from '../api';
 import { storage } from '../utils/storage';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
@@ -368,12 +370,24 @@ export function SimulatorScreen() {
                 <Card
                   key={s.key}
                   onClick={() => nav(`/simulator/chat/${encodeURIComponent(s.sessionId)}?key=${encodeURIComponent(s.key)}`)}
+                  style={{ position: 'relative' }}
                 >
-                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-                    {s.girlName ? `${s.girlName} · ` : ''}{s.typazh} {s.place ? `• ${s.place}` : ''}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {s.lastMsg}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {s.girlName ? `${s.girlName} · ` : ''}{s.typazh} {s.place ? `• ${s.place}` : ''}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {s.lastMsg}
+                      </div>
+                    </div>
+                    <DialogActionsMenu
+                      confirmText={`Удалить диалог${s.girlName ? ` с ${s.girlName}` : ` с ${s.typazh}`}?`}
+                      onDelete={() => {
+                        deleteSimSession(s.key);
+                        setSavedSessions(prev => prev.filter(x => x.key !== s.key));
+                      }}
+                    />
                   </div>
                 </Card>
               ))}

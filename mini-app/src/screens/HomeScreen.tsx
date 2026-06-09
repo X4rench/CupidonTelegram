@@ -20,6 +20,8 @@ import { impactHaptic, selectionHaptic } from '../utils/haptics';
 import { getTgUser } from '../auth';
 import { getTipOfDay } from '../utils/dailyTips';
 import { cleanTypazhName } from '../utils/typazhes';
+import { DialogActionsMenu } from '../components/DialogActionsMenu';
+import { deleteWingContact, deleteSimSession } from '../utils/dialogActions';
 
 interface QuickAction {
   key: string;
@@ -77,6 +79,9 @@ interface ActiveDialog {
   to: string;
   initial: string;
   gradient: [string, string];
+  // refs для удаления:
+  contactId?: string;     // для kind='wing'
+  storageKey?: string;    // для kind='sim'
 }
 
 const GRAD_POOL: [string, string][] = [
@@ -125,6 +130,7 @@ export function HomeScreen() {
               to: `/wing?contact=${c.id}`,
               initial: (c.name?.trim() || '?').slice(0, 1).toUpperCase(),
               gradient: GRAD_POOL[i % GRAD_POOL.length],
+              contactId: String(c.id),
             });
           });
         }
@@ -157,6 +163,7 @@ export function HomeScreen() {
             to: `/simulator/chat/${encodeURIComponent(data.session_id)}?key=${encodeURIComponent('sim_session_' + suffix)}`,
             initial: initialChar,
             gradient: GRAD_POOL[(dialogs.length + 2) % GRAD_POOL.length],
+            storageKey: 'sim_session_' + suffix,
           });
         } catch (_) {}
       }
@@ -249,10 +256,18 @@ export function HomeScreen() {
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>{d.subtitle}</div>
                   </div>
-                  <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
-                       stroke="var(--text-muted)" strokeWidth={2}>
-                    <polyline points="9,18 15,12 9,6" />
-                  </svg>
+                  <DialogActionsMenu
+                    confirmText={`Удалить «${d.title}»?`}
+                    onDelete={async () => {
+                      if (d.kind === 'wing' && d.contactId) {
+                        const ok = await deleteWingContact(d.contactId);
+                        if (ok) setActiveDialogs(prev => prev.filter(x => !(x.kind === 'wing' && x.contactId === d.contactId)));
+                      } else if (d.kind === 'sim' && d.storageKey) {
+                        deleteSimSession(d.storageKey);
+                        setActiveDialogs(prev => prev.filter(x => !(x.kind === 'sim' && x.storageKey === d.storageKey)));
+                      }
+                    }}
+                  />
                 </Card>
               ))}
             </div>

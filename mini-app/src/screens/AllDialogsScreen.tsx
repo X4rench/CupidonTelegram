@@ -11,6 +11,8 @@ import { contactsApi, type Contact } from '../api';
 import { useBackButton } from '../utils/backButton';
 import { selectionHaptic } from '../utils/haptics';
 import { findSimTypazhByName, cleanTypazhName } from '../utils/typazhes';
+import { DialogActionsMenu } from '../components/DialogActionsMenu';
+import { deleteWingContact, deleteSimSession } from '../utils/dialogActions';
 
 interface SimDialog {
   key: string;        // полный storage-key (для passing в чат)
@@ -178,6 +180,11 @@ export function AllDialogsScreen() {
                 lastMsg=""
                 gradient={GRADIENT_POOL[i % GRADIENT_POOL.length]}
                 onClick={() => nav(`/wing?contact=${c.id}`)}
+                onDelete={async () => {
+                  const ok = await deleteWingContact(c.id);
+                  if (ok) setContacts(prev => prev.filter(x => x.id !== c.id));
+                }}
+                confirmText={`Удалить контакт «${c.name}»? Анализ переписки и история тоже удалятся.`}
               />
             ))}
           </div>
@@ -191,6 +198,11 @@ export function AllDialogsScreen() {
                 lastMsg={d.lastMsg}
                 gradient={GRADIENT_POOL[i % GRADIENT_POOL.length]}
                 onClick={() => nav(`/simulator/chat/${encodeURIComponent(d.sessionId)}?key=${encodeURIComponent(d.storageKey)}`)}
+                onDelete={() => {
+                  deleteSimSession(d.storageKey);
+                  setSimDialogs(prev => prev.filter(x => x.storageKey !== d.storageKey));
+                }}
+                confirmText={`Удалить диалог с ${d.girlName ? d.girlName : d.typazh}?`}
               />
             ))}
           </div>
@@ -200,12 +212,14 @@ export function AllDialogsScreen() {
   );
 }
 
-function DialogRow({ title, subtitle, lastMsg, gradient, onClick }: {
+function DialogRow({ title, subtitle, lastMsg, gradient, onClick, onDelete, confirmText }: {
   title: string;
   subtitle: string;
   lastMsg: string;
   gradient: [string, string];
   onClick: () => void;
+  onDelete?: () => void | Promise<void>;
+  confirmText?: string;
 }) {
   const initial = (title.trim() || '?').slice(0, 1).toUpperCase();
   return (
@@ -224,9 +238,9 @@ function DialogRow({ title, subtitle, lastMsg, gradient, onClick }: {
             {lastMsg || subtitle}
           </div>
         </div>
-        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth={2} strokeLinecap="round">
-          <polyline points="9,18 15,12 9,6" />
-        </svg>
+        {onDelete && (
+          <DialogActionsMenu onDelete={onDelete} confirmText={confirmText} />
+        )}
       </div>
     </Card>
   );
