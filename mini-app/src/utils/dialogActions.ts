@@ -66,3 +66,38 @@ export function deleteSimSession(storageKey: string): boolean {
   }
   return removed;
 }
+
+/**
+ * Автоочистка «пустых» симуляторных сессий — где только opening-сообщение
+ * от AI без ответа пользователя. Такие создаются когда юзер открыл
+ * диалог и сразу вышел.
+ *
+ * Если у сессии messages.length <= 1 → удаляем её. Иначе считаем что
+ * юзер реально общался — оставляем (даже если потом не вернулся).
+ *
+ * @returns количество удалённых
+ */
+export function cleanupEmptySimSessions(): number {
+  let removed = 0;
+  const toRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k) continue;
+    if (!/^cupidon:[^:]+:sim_session_/.test(k)) continue;
+    try {
+      const raw = localStorage.getItem(k);
+      if (!raw) continue;
+      const data = JSON.parse(raw);
+      const msgs = Array.isArray(data?.messages) ? data.messages : [];
+      // <= 1 сообщение = только opening от AI, юзер не отвечал
+      if (msgs.length <= 1) toRemove.push(k);
+    } catch (_) {
+      // Сломанная запись — тоже удаляем
+      toRemove.push(k);
+    }
+  }
+  for (const k of toRemove) {
+    try { localStorage.removeItem(k); removed++; } catch (_) {}
+  }
+  return removed;
+}

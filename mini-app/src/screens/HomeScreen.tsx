@@ -21,7 +21,7 @@ import { getTgUser } from '../auth';
 import { getTipOfDay } from '../utils/dailyTips';
 import { cleanTypazhName } from '../utils/typazhes';
 import { DialogActionsMenu } from '../components/DialogActionsMenu';
-import { deleteWingContact, deleteSimSession } from '../utils/dialogActions';
+import { deleteWingContact, deleteSimSession, cleanupEmptySimSessions } from '../utils/dialogActions';
 
 interface QuickAction {
   key: string;
@@ -116,6 +116,9 @@ export function HomeScreen() {
     // Активные диалоги: контакты Стрелы (из API) + симуляторные сессии
     // (из localStorage). Сливаем и показываем максимум 3 свежих.
     const loadDialogs = async () => {
+      // Автоочистка пустых стартов sim-сессий — чтобы в списке не было
+      // мусорных дубликатов после многократных «открыл и вышел».
+      cleanupEmptySimSessions();
       const dialogs: ActiveDialog[] = [];
 
       // Wing-контакты
@@ -146,7 +149,9 @@ export function HomeScreen() {
           const raw = localStorage.getItem(k);
           if (!raw) continue;
           const data = JSON.parse(raw);
-          if (!data.messages?.length) continue;
+          // Только настоящие диалоги (>=2 сообщений) — иначе это пустой
+          // тестовый старт без ответа юзера, не показываем.
+          if (!Array.isArray(data.messages) || data.messages.length < 2) continue;
           const suffix = m[1];
           const underIdx = suffix.indexOf('_');
           const typazhRaw = underIdx > 0 ? suffix.slice(0, underIdx) : suffix;

@@ -12,7 +12,7 @@ import { useBackButton } from '../utils/backButton';
 import { selectionHaptic } from '../utils/haptics';
 import { findSimTypazhByName, cleanTypazhName } from '../utils/typazhes';
 import { DialogActionsMenu } from '../components/DialogActionsMenu';
-import { deleteWingContact, deleteSimSession } from '../utils/dialogActions';
+import { deleteWingContact, deleteSimSession, cleanupEmptySimSessions } from '../utils/dialogActions';
 
 interface SimDialog {
   key: string;        // полный storage-key (для passing в чат)
@@ -49,6 +49,11 @@ export function AllDialogsScreen() {
       .then(res => { if (res.ok) setContacts(res.contacts || []); })
       .catch(() => {});
 
+    // Автоочистка пустых стартов (юзер открыл диалог и сразу вышел —
+    // в storage остался ключ с одним opening-сообщением от AI).
+    // Удаляем такие сессии чтобы в списке не было мусора-дубликатов.
+    cleanupEmptySimSessions();
+
     // Сканируем localStorage на sim_session_*
     const out: SimDialog[] = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -67,7 +72,10 @@ export function AllDialogsScreen() {
         const msgs = data.messages || [];
         const lastHer = [...msgs].reverse().find((m: any) => m.from === 'her');
         const lastAny = msgs[msgs.length - 1];
-        if (!msgs.length) continue;
+        // Показываем только сессии где юзер реально что-то писал (>=2
+        // сообщений). 1 сообщение = только opening от AI, юзер сразу
+        // вышел — это «мусор» от теста, не настоящий диалог.
+        if (msgs.length < 2) continue;
         // Имя сначала из data.typazh (правильно при сохранении), потом из
         // суффикса (legacy fallback). Чистим от лидирующих цифр/мусора.
         const typazh = cleanTypazhName(data.typazh || typazhRaw);

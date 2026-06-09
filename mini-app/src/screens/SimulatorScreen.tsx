@@ -14,7 +14,7 @@ import { Chip } from '../components/Chip';
 import { GradientButton } from '../components/GradientButton';
 import { DifficultySlider } from '../components/DifficultySlider';
 import { DialogActionsMenu } from '../components/DialogActionsMenu';
-import { deleteSimSession } from '../utils/dialogActions';
+import { deleteSimSession, cleanupEmptySimSessions } from '../utils/dialogActions';
 import { startSimulator, ApiError } from '../api';
 import { storage } from '../utils/storage';
 import { impactHaptic, notificationHaptic } from '../utils/haptics';
@@ -74,6 +74,9 @@ export function SimulatorScreen() {
   // Список незавершённых сессий
   const [savedSessions, setSavedSessions] = useState<{ key: string; typazh: string; place: string; lastMsg: string; difficulty?: number; sessionId: string; girlName?: string }[]>([]);
   useEffect(() => {
+    // Автоочистка пустых стартов перед сканированием
+    cleanupEmptySimSessions();
+
     const out: typeof savedSessions = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
@@ -89,7 +92,8 @@ export function SimulatorScreen() {
         if (!raw) continue;
         const data = JSON.parse(raw) as SavedSimSession;
         const msgs = data.messages || [];
-        if (!msgs.length) continue;
+        // Только настоящие диалоги (>=2 сообщений). 1 = пустой старт.
+        if (msgs.length < 2) continue;
         const lastHer = [...msgs].reverse().find(m => m.from === 'her');
         // Имя: предпочитаем data.typazh (правильно при свежем сохранении),
         // fallback на префикс ключа. Чистим от лидирующих цифр/мусора.
