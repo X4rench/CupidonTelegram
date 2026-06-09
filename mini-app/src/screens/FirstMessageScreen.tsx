@@ -42,7 +42,10 @@ export function FirstMessageScreen() {
   const [limitSheet, setLimitSheet] = useState<LimitReason | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<string[]>([]);
-  const [page, setPage] = useState(0);   // текущая страница (0..REGEN_LIMIT)
+  // Логика страниц 1-в-1 как Wing: totalPages = regenCount + 1
+  // (раскрывается по мере нажатий «Ещё», не сразу 3).
+  const [responsePage, setResponsePage] = useState(0);
+  const [regenCount, setRegenCount] = useState(0);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
   const toggleTag = (t: string) => {
@@ -81,7 +84,8 @@ export function FirstMessageScreen() {
     setLoading(true);
     setError(null);
     setResults([]);
-    setPage(0);
+    setResponsePage(0);
+    setRegenCount(0);
     setCopiedIdx(null);
     try {
       const res = await generateFirstMessage({
@@ -125,10 +129,20 @@ export function FirstMessageScreen() {
     if (error) setError(null);
   };
 
-  const onRegenerate = () => {
-    if (page >= REGEN_LIMIT) return;
+  // refreshResponses — 1-в-1 как Wing: инкрементит И page И regenCount.
+  const refreshResponses = () => {
+    if (regenCount >= REGEN_LIMIT) return;
     impactHaptic('light');
-    setPage(p => Math.min(p + 1, REGEN_LIMIT));
+    setResponsePage(p => p + 1);
+    setRegenCount(c => c + 1);
+    setCopiedIdx(null);
+  };
+
+  // goToResponsePage — 1-в-1 как Wing: skip same + selectionHaptic.
+  const goToResponsePage = (i: number) => {
+    if (i === responsePage) return;
+    selectionHaptic();
+    setResponsePage(i);
     setCopiedIdx(null);
   };
 
@@ -142,12 +156,14 @@ export function FirstMessageScreen() {
   };
 
   const visibleResults = useMemo(
-    () => results.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE),
-    [results, page],
+    () => results.slice(responsePage * PAGE_SIZE, responsePage * PAGE_SIZE + PAGE_SIZE),
+    [results, responsePage],
   );
 
   const hasResults = results.length > 0;
-  const totalPages = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
+  // totalPages раскрывается ПО МЕРЕ нажатий «Ещё» — точно как Wing.
+  // Изначально 1, после первого «Ещё» — 2, после второго — 3 (REGEN_LIMIT+1).
+  const totalPages = regenCount + 1;
 
   return (
     <Layout>
@@ -223,28 +239,28 @@ export function FirstMessageScreen() {
           <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={styles.resultsHeader}>
               <span style={styles.resultsTitle}>
-                Варианты {page + 1} / {totalPages}
+                Варианты {responsePage + 1} / {totalPages}
               </span>
               <button
-                onClick={onRegenerate}
-                disabled={page >= REGEN_LIMIT || loading}
+                onClick={refreshResponses}
+                disabled={regenCount >= REGEN_LIMIT || loading}
                 style={{
                   ...styles.regenBtn,
-                  opacity: page >= REGEN_LIMIT ? 0.5 : 1,
-                  cursor: page >= REGEN_LIMIT ? 'default' : 'pointer',
+                  opacity: regenCount >= REGEN_LIMIT ? 0.5 : 1,
+                  cursor: regenCount >= REGEN_LIMIT ? 'default' : 'pointer',
                 }}
               >
                 <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
-                     stroke={page >= REGEN_LIMIT ? 'var(--text-muted)' : 'var(--text-accent)'}
+                     stroke={regenCount >= REGEN_LIMIT ? 'var(--text-muted)' : 'var(--text-accent)'}
                      strokeWidth={2} strokeLinecap="round">
                   <path d="M23 4v6h-6" />
                   <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
                 </svg>
                 <span style={{
                   fontSize: 12,
-                  color: page >= REGEN_LIMIT ? 'var(--text-muted)' : 'var(--text-accent)',
+                  color: regenCount >= REGEN_LIMIT ? 'var(--text-muted)' : 'var(--text-accent)',
                 }}>
-                  {page >= REGEN_LIMIT ? 'Лимит' : 'Ещё'}
+                  {regenCount >= REGEN_LIMIT ? 'Лимит' : 'Ещё'}
                 </span>
               </button>
             </div>
@@ -253,39 +269,41 @@ export function FirstMessageScreen() {
               {Array.from({ length: totalPages }).map((_, i) => (
                 <button
                   key={i}
-                  onClick={() => { selectionHaptic(); setPage(i); setCopiedIdx(null); }}
+                  onClick={() => goToResponsePage(i)}
                   style={{
                     ...styles.paginationDot,
-                    background: i === page ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                    background: i === responsePage ? 'var(--accent-primary)' : 'var(--border-subtle)',
                   }}
                   aria-label={`Страница ${i + 1}`}
                 />
               ))}
             </div>
 
-            {visibleResults.map((text, i) => (
-              <Card key={`p${page}-${i}`} style={styles.responseCard}>
-                <button
-                  onClick={() => copyText(text, i)}
-                  style={styles.copyIconBtn}
-                  aria-label="Скопировать"
-                >
-                  {copiedIdx === i ? (
-                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
-                         stroke="var(--status-positive)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20,6 9,17 4,12" />
-                    </svg>
-                  ) : (
-                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
-                         stroke="var(--text-muted)" strokeWidth={2}>
-                      <rect x={9} y={9} width={13} height={13} rx={2} />
-                      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                    </svg>
-                  )}
-                </button>
-                <p style={styles.responseText}>{text}</p>
-              </Card>
-            ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {visibleResults.map((text, i) => (
+                <div key={`p${responsePage}-${i}`} style={styles.responseItem}>
+                  <button
+                    onClick={() => copyText(text, i)}
+                    style={styles.copyBtn}
+                    aria-label="Скопировать"
+                  >
+                    {copiedIdx === i ? (
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
+                           stroke="var(--status-positive)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20,6 9,17 4,12" />
+                      </svg>
+                    ) : (
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
+                           stroke="var(--text-muted)" strokeWidth={2}>
+                        <rect x={9} y={9} width={13} height={13} rx={2} />
+                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                      </svg>
+                    )}
+                  </button>
+                  <p style={styles.responseText}>{text}</p>
+                </div>
+              ))}
+            </div>
 
           </div>
         )}
@@ -373,47 +391,52 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text-secondary)',
   },
 
+  // Шапка/кнопка/пагинация — точно как WingScreen.styles.{responsesHeader,
+  // sectionLabel, refreshBtn, pagination, paginationDot}
   resultsHeader: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 4,
   },
   resultsTitle: {
-    fontSize: 13, color: 'var(--text-muted)',
-    textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700,
+    fontSize: 14, fontWeight: 600,
+    color: 'var(--text-primary)',
+    display: 'block',
   },
   regenBtn: {
-    display: 'inline-flex', alignItems: 'center', gap: 6,
-    padding: '6px 10px',
-    border: '1px solid var(--border-accent)',
-    background: 'var(--accent-soft)',
-    borderRadius: 8,
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    background: 'transparent',
+    border: 0, padding: 0,
     cursor: 'pointer',
   },
   pagination: {
-    display: 'flex', gap: 6, justifyContent: 'center',
+    display: 'flex', gap: 4,
+    marginBottom: 8,
   },
   paginationDot: {
-    width: 24, height: 4, borderRadius: 2,
-    border: 0,
-    cursor: 'pointer',
-    padding: 0,
+    flex: 1, height: 3, borderRadius: 2,
+    border: 0, padding: 0, cursor: 'pointer',
   },
 
-  responseCard: {
+  // Карточки вариантов — точно как WingScreen.styles.{responseItem, copyBtn, responseText}
+  responseItem: {
     position: 'relative',
-    paddingRight: 40,
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 12,
+    padding: 12,
+    paddingRight: 36,
   },
-  copyIconBtn: {
+  copyBtn: {
     position: 'absolute',
     top: 10, right: 10,
-    width: 28, height: 28,
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    border: 0, borderRadius: 8,
-    background: 'var(--bg-elevated)',
+    padding: 4,
+    background: 'transparent',
     cursor: 'pointer',
+    border: 0,
   },
   responseText: {
     margin: 0,
-    fontSize: 15, lineHeight: '21px',
+    fontSize: 14, lineHeight: '22px',
     color: 'var(--text-primary)',
     whiteSpace: 'pre-wrap',
   },
