@@ -12,7 +12,7 @@
 //   - Внизу: Назад (secondary) | Дальше/Начать (gradient primary).
 //   - Top-right: «Пропустить» (text-only, мелкий).
 // ═══════════════════════════════════════════════════════════════
-import { useState, type CSSProperties, type ReactNode, type ComponentType } from 'react';
+import { useMemo, useState, type CSSProperties, type ReactNode, type ComponentType } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GradientButton } from '../components/GradientButton';
 import { SecondaryButton } from '../components/SecondaryButton';
@@ -23,6 +23,24 @@ import { useBackButton } from '../utils/backButton';
 import { selectionHaptic, impactHaptic } from '../utils/haptics';
 import { useMe } from '../contexts/MeContext';
 import { updateMe } from '../api';
+
+// iOS WebKit плохо тянет много одновременных SMIL-анимаций. Все 5 слайдов
+// карусели держатся в DOM (translate-X), и каждая иконка содержит 3-10
+// <animate>/<animateTransform> с repeatCount="indefinite". На iOS это
+// морозит WebView. Поэтому на iOS рендерим иконку ТОЛЬКО для активного
+// слайда — остальные показывают blur-фон без анимаций. На других платформах
+// (Android Chrome / Desktop) рендерим всё как раньше.
+function detectIsIOS(): boolean {
+  try {
+    const tg: any = (window as any)?.Telegram?.WebApp;
+    const platform = String(tg?.platform || '').toLowerCase();
+    if (platform === 'ios' || platform === 'ipad') return true;
+    const ua = navigator.userAgent || '';
+    return /iPhone|iPad|iPod/i.test(ua);
+  } catch (_) {
+    return false;
+  }
+}
 
 // accentSolid/accent2Solid — насыщенные цвета для самой SVG-иконки
 // (без полупрозрачности — она нужна только blur-кругу позади).
@@ -91,6 +109,7 @@ export function TutorialScreen() {
 
   const [idx, setIdx] = useState(0);
   const [finishing, setFinishing] = useState(false);
+  const isIOS = useMemo(detectIsIOS, []);
 
   const isLast = idx === SLIDES.length - 1;
   const progress = ((idx + 1) / SLIDES.length) * 100;
@@ -159,7 +178,14 @@ export function TutorialScreen() {
           }}
         >
           {SLIDES.map((s, i) => (
-            <SlideView key={i} slide={s} />
+            <SlideView
+              key={i}
+              slide={s}
+              // На iOS рендерим иконку только активного слайда → одна
+              // SMIL-анимация одновременно, не 5. На других платформах —
+              // рендерим всё как раньше.
+              renderIcon={!isIOS || i === idx}
+            />
           ))}
         </div>
       </div>
@@ -186,21 +212,24 @@ export function TutorialScreen() {
   );
 }
 
-function SlideView({ slide }: { slide: Slide }): ReactNode {
+function SlideView({ slide, renderIcon }: { slide: Slide; renderIcon: boolean }): ReactNode {
   const { Icon } = slide;
   return (
     <div style={styles.slide}>
       <div style={styles.heroWrap}>
-        {/* Большой blur-круг под иконкой */}
+        {/* Большой blur-круг под иконкой — рендерим всегда, чтобы был фон
+            даже когда иконка скрыта на iOS-неактивных слайдах. */}
         <div
           style={{
             ...styles.blurCircle,
             background: `radial-gradient(circle at center, ${slide.accent} 0%, ${slide.accent2} 45%, transparent 70%)`,
           }}
         />
-        <div style={styles.iconWrap}>
-          <Icon accent={slide.iconAccent} accent2={slide.iconAccent2} size={130} />
-        </div>
+        {renderIcon && (
+          <div style={styles.iconWrap}>
+            <Icon accent={slide.iconAccent} accent2={slide.iconAccent2} size={130} />
+          </div>
+        )}
       </div>
 
       <div style={styles.textBlock}>

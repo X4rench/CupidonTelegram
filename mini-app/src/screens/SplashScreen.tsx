@@ -13,6 +13,10 @@ import { useNavigate } from 'react-router-dom';
 import { useMe } from '../contexts/MeContext';
 
 const MIN_SPLASH_MS = 800;
+// Жёсткий failsafe — если /me не отдал ответ за это время, всё равно
+// выпускаем юзера в UI (на onboarding). Раньше на медленном iOS-network
+// можно было висеть на splash до 3 минут (60s timeout × 3 retries).
+const MAX_SPLASH_MS = 12_000;
 
 export function SplashScreen() {
   const { me, loading } = useMe();
@@ -46,7 +50,21 @@ export function SplashScreen() {
     }
 
     tryRedirect();
-    return () => { cancelled = true; };
+
+    // Failsafe: даже если loading навсегда true (заглохший fetch на iOS
+    // и т.п.) — через MAX_SPLASH_MS форсим переход на onboarding.
+    // Лучше показать пустой онбординг чем бесконечный splash.
+    const failsafe = setTimeout(() => {
+      if (cancelled) return;
+      // eslint-disable-next-line no-console
+      console.warn('[Splash] failsafe fired — loading hung, forcing /onboarding');
+      nav('/onboarding', { replace: true });
+    }, MAX_SPLASH_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(failsafe);
+    };
   }, [loading, me, nav]);
 
   return (
