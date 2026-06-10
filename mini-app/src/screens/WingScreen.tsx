@@ -122,6 +122,19 @@ function AIThinkingBanner({ visible }: { visible: boolean }) {
   );
 }
 
+// ── Tone — стиль ответов AI ─────────────────────────────────────────────────
+// 'auto' — AI решает по контексту (поведение по умолчанию, как было раньше).
+// Остальные смещают все 9 вариантов в одну сторону.
+const TONE_OPTIONS = [
+  { key: 'auto',      label: 'Авто',         sub: 'AI решит сам' },
+  { key: 'friendly',  label: 'Дружелюбно',   sub: 'без флирта' },
+  { key: 'playful',   label: 'Игриво',       sub: 'лёгкий тиз' },
+  { key: 'flirty',    label: 'Флирт',        sub: 'явный интерес' },
+  { key: 'confident', label: 'Уверенно',     sub: 'веду диалог' },
+] as const;
+
+type ToneKey = typeof TONE_OPTIONS[number]['key'];
+
 // ── Per-girl analysis state ─────────────────────────────────────────────────
 
 interface GirlAnalysis {
@@ -133,9 +146,12 @@ interface GirlAnalysis {
   lastAnalyzedText?: string;
   lastAnalyzedContext?: boolean;
   lastAnalyzedHint?: string | null;
+  lastAnalyzedTone?: ToneKey;
   lastAnalyzedAt?: string;
   lastMsgCount?: number;
   lastMood?: string | null;
+  // Сохраняем выбор тона между визитами на экран.
+  tone?: ToneKey;
 }
 
 const emptyAnalysis = (): GirlAnalysis => ({
@@ -143,6 +159,7 @@ const emptyAnalysis = (): GirlAnalysis => ({
   showResult: false,
   responsePage: 0,
   regenCount: 0,
+  tone: 'auto',
 });
 
 const REGEN_LIMIT = 2;
@@ -237,12 +254,13 @@ export function WingScreen() {
     selectionHaptic();
   };
 
-  // Disable analyze button if same text/context/hint were analyzed already
+  // Disable analyze button if same text/context/hint/tone were analyzed already
   const sortedCsv = (s: string | null | undefined) =>
     !s ? '' : s.split(',').map(x => x.trim()).filter(Boolean).sort().join(',');
   const curHintCsv = curHint.length ? curHint.slice().sort().join(',') : '';
   const lastHintCsv = sortedCsv(cur.lastAnalyzedHint);
   const text = cur.text;
+  const curTone: ToneKey = cur.tone || 'auto';
   const analyzeDisabled =
     !text.trim() ||
     loading ||
@@ -250,7 +268,8 @@ export function WingScreen() {
       cur.showResult &&
       text.trim() === cur.lastAnalyzedText &&
       contextEnabled === !!cur.lastAnalyzedContext &&
-      curHintCsv === lastHintCsv
+      curHintCsv === lastHintCsv &&
+      curTone === (cur.lastAnalyzedTone || 'auto')
     );
 
   const hasPrevCtx = !!cur.lastAnalyzedText;
@@ -263,6 +282,7 @@ export function WingScreen() {
     const analyzingContactId = activeContactId === NO_CONTACT_ID ? null : activeContactId;
     const hintList = analysisTypazhes[activeContactId] || [];
     const hintCsv = listToCsv(hintList);
+    const analyzedTone = curTone;
 
     setLoading(true);
     setApiError(null);
@@ -273,6 +293,9 @@ export function WingScreen() {
         contactId: analyzingContactId,
         typazhHint: hintCsv,
         user_profile: me?.user_profile ?? null,
+        // Передаём только если не 'auto' — экономия трафика
+        // и нулевой риск изменить старое поведение.
+        tone: analyzedTone === 'auto' ? null : analyzedTone,
       });
       const now = new Date();
       const pad = (n: number) => n.toString().padStart(2, '0');
@@ -289,6 +312,7 @@ export function WingScreen() {
         lastMsgCount: msgCount,
         lastMood: res.result.mood,
         lastAnalyzedHint: hintCsv ?? undefined,
+        lastAnalyzedTone: analyzedTone,
       });
       notificationHaptic('success');
       getAnalysisHistory().then(r => { if (r.ok) setHistory(r.sessions || []); }).catch(() => {});
@@ -516,6 +540,35 @@ export function WingScreen() {
                 </div>
               </div>
             )}
+            <div style={styles.divider} />
+
+            {/* Tone selector — стиль ответов AI */}
+            <div style={styles.toneRow}>
+              <span style={styles.toneLabel}>Стиль ответов:</span>
+              <div style={styles.toneChipsRow}>
+                {TONE_OPTIONS.map(t => {
+                  const active = curTone === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      onClick={() => { selectionHaptic(); updateCur({ tone: t.key }); }}
+                      style={{
+                        ...styles.toneChip,
+                        background: active ? 'var(--accent-primary)' : 'var(--bg-elevated)',
+                        color: active ? '#fff' : 'var(--text-secondary)',
+                        borderColor: active ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                      }}
+                    >
+                      <span style={{ fontSize: 12, fontWeight: 600 }}>{t.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <span style={styles.toneSub}>
+                {TONE_OPTIONS.find(t => t.key === curTone)?.sub || ''}
+              </span>
+            </div>
+
             <div style={styles.divider} />
 
             <AutoGrowTextarea
@@ -930,6 +983,20 @@ const styles: Record<string, CSSProperties> = {
   },
 
   section: { padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 12 },
+
+  // ── Tone selector ────────────────────────────────────────────────────────
+  toneRow: { display: 'flex', flexDirection: 'column', gap: 6 },
+  toneLabel: { fontSize: 13, color: 'var(--text-muted)' },
+  toneChipsRow: { display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 2 },
+  toneChip: {
+    flexShrink: 0,
+    padding: '6px 12px',
+    borderRadius: 14,
+    border: '1px solid var(--border-subtle)',
+    cursor: 'pointer',
+    transition: 'background 160ms, color 160ms, border-color 160ms',
+  },
+  toneSub: { fontSize: 11, color: 'var(--text-muted)', marginTop: 2 },
 
   hintHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   hintLabel: { fontSize: 13, color: 'var(--text-muted)' },

@@ -160,6 +160,22 @@ export function FirstMessageScreen() {
     [results, responsePage],
   );
 
+  // Качество описания — аналог password strength.
+  // Веса: имя (10), теги (до 40, по 8 за тег, cap 5 тегов), профиль (до 50).
+  // Профиль scales: 0-30 chars → линейно 0-15, 30-100 → 15-40, 100+ → 40-50.
+  const qualityScore = useMemo(() => {
+    let s = 0;
+    if (girlName.trim().length > 0) s += 10;
+    s += Math.min(40, tags.length * 8);
+    const pLen = profile.trim().length;
+    if (pLen > 0) {
+      if (pLen < 30) s += (pLen / 30) * 15;
+      else if (pLen < 100) s += 15 + ((pLen - 30) / 70) * 25;
+      else s += 40 + Math.min(10, (pLen - 100) / 20);
+    }
+    return Math.max(0, Math.min(100, Math.round(s)));
+  }, [girlName, tags, profile]);
+
   const hasResults = results.length > 0;
   // totalPages раскрывается ПО МЕРЕ нажатий «Ещё» — точно как Wing.
   // Изначально 1, после первого «Ещё» — 2, после второго — 3 (REGEN_LIMIT+1).
@@ -217,6 +233,14 @@ export function FirstMessageScreen() {
             style={{ minHeight: 80, padding: 0 }}
           />
         </Card>
+
+        {/* Индикатор качества — чем подробнее ввод, тем точнее AI попадёт
+            в её стиль. Аналогия со «strength» индикатором пароля. */}
+        {!hasResults && (
+          <ProfileQualityRing
+            score={qualityScore}
+          />
+        )}
 
         {/* Кнопка «Сгенерировать» прячется после успешной генерации —
             юзер дальше использует «Перегенерировать» в блоке результатов */}
@@ -348,6 +372,88 @@ export function FirstMessageScreen() {
     </Layout>
   );
 }
+
+// ── ProfileQualityRing ──────────────────────────────────────────────────────
+// Круговой индикатор «качества» описания (аналог password strength).
+// Плавно перетекает между 4 уровнями: Слабое → Базовое → Хорошее → Отличное.
+function ProfileQualityRing({ score }: { score: number }) {
+  const pct = Math.max(0, Math.min(100, score));
+  const radius = 26;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - pct / 100);
+
+  // Уровни и цвета. Слабое = серый, потом янтарный, фиолет, зелёный.
+  const tier =
+    pct < 25 ? { label: 'Слабое',  color: '#71717A', hint: 'AI почти ничего не знает — ответ выйдет общим.' } :
+    pct < 55 ? { label: 'Базовое', color: '#F59E0B', hint: 'Уже что-то — но добавь деталей для попадания.' } :
+    pct < 80 ? { label: 'Хорошее', color: '#A855F7', hint: 'Отлично. Можешь дописать ещё пару нюансов.' } :
+               { label: 'Отличное',color: '#22C55E', hint: 'AI попадёт точно в её стиль и интересы.' };
+
+  return (
+    <div style={qualityStyles.wrap}>
+      <svg width={62} height={62} viewBox="0 0 64 64" style={{ flexShrink: 0 }}>
+        {/* Трек */}
+        <circle cx="32" cy="32" r={radius}
+          stroke="var(--border-default)" strokeWidth="5.5" fill="none" />
+        {/* Прогресс */}
+        <circle cx="32" cy="32" r={radius}
+          stroke={tier.color} strokeWidth="5.5" fill="none"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          transform="rotate(-90 32 32)"
+          style={{ transition: 'stroke-dashoffset 400ms ease, stroke 200ms' }}
+        />
+        <text x="32" y="37" textAnchor="middle"
+          fill="var(--text-primary)" fontSize="14" fontWeight="700"
+          fontFamily="var(--font-display)">
+          {pct}%
+        </text>
+      </svg>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={qualityStyles.headRow}>
+          <span style={qualityStyles.title}>Описание профиля:</span>
+          <span style={{ ...qualityStyles.tierLabel, color: tier.color }}>{tier.label}</span>
+        </div>
+        <p style={qualityStyles.hint}>{tier.hint}</p>
+      </div>
+    </div>
+  );
+}
+
+const qualityStyles: Record<string, CSSProperties> = {
+  wrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 14,
+    padding: '10px 12px',
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 12,
+  },
+  headRow: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  title: {
+    fontSize: 13,
+    color: 'var(--text-secondary)',
+    fontWeight: 500,
+  },
+  tierLabel: {
+    fontSize: 13,
+    fontWeight: 700,
+  },
+  hint: {
+    margin: '4px 0 0',
+    fontSize: 11,
+    lineHeight: '15px',
+    color: 'var(--text-muted)',
+  },
+};
 
 const styles: Record<string, CSSProperties> = {
   container:    { padding: '24px 20px' },
