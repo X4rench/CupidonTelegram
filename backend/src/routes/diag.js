@@ -33,10 +33,11 @@ router.post('/client-log', (req, res) => {
     if (dataStr.length > MAX_DATA_BYTES) dataStr = dataStr.slice(0, MAX_DATA_BYTES) + '...';
   } catch (_) { dataStr = '[unserializable]'; }
 
-  // Логируем в stdout — попадёт в journalctl -u cupidon
-  console.warn(`[client-diag] ctx=${context} tg_id=${tg.id || '?'} ` +
-               `username=${tg.username || '?'} platform=${req.headers['user-agent']?.slice(0, 60) || '?'} ` +
-               `data=${dataStr}`);
+  // console.log → stdout (точно попадёт в backend.log). console.warn → stderr
+  // которое в systemd unit может писаться в другое место.
+  console.log(`[client-diag] ctx=${context} tg_id=${tg.id || '?'} ` +
+              `username=${tg.username || '?'} platform=${req.headers['user-agent']?.slice(0, 60) || '?'} ` +
+              `data=${dataStr}`);
 
   res.json({ ok: true });
 });
@@ -57,7 +58,9 @@ beaconRouter.get('/beacon', (req, res) => {
   let dataStr = '';
   try { dataStr = JSON.stringify(data); } catch (_) { dataStr = '[unserializable]'; }
 
-  console.warn(`[client-diag-beacon] stage=${stage} ip=${req.ip} ua="${ua}" data=${dataStr}`);
+  // console.log → stdout (backend.log). console.warn идёт в stderr и может
+  // не попасть в файл, если systemd unit не делает StandardError=append.
+  console.log(`[client-diag-beacon] stage=${stage} ip=${req.ip} ua="${ua}" data=${dataStr}`);
 
   // Возвращаем 1×1 GIF — стандартный трюк для трекинговых пикселей
   const buf = Buffer.from('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
