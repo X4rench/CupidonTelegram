@@ -533,56 +533,120 @@ function CheckSvg({ color = 'var(--status-positive)' }: { color?: string }) {
 }
 
 // ── Иконки для hero и popular-badge ──────────────────────────────
-// Сердце пробитое стрелой — Купидон. Стрела выполнена полупрозрачным
-// белым, чтобы выделяться на градиенте позади, но не спорить с сердцем.
+// Сердце пробитое стрелой — Купидон. Сердце пульсирует (heartbeat),
+// вокруг летают три искры с разными фазами мерцания. Стрела выполнена
+// полупрозрачным белым с детализированным оперением.
 function CupidHeartSvg() {
   return (
     <svg
-      width={34}
-      height={34}
-      viewBox="0 0 36 36"
+      width={38}
+      height={38}
+      viewBox="0 0 40 40"
       fill="none"
-      style={{ filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.18))' }}
+      style={{ filter: 'drop-shadow(0 3px 8px rgba(0,0,0,0.22))' }}
+      xmlns="http://www.w3.org/2000/svg"
     >
-      {/* Стрела (под сердцем — феathers сверху-слева, наконечник снизу-справа) */}
-      <g opacity="0.7">
-        {/* Оперение */}
-        <path d="M2,4 L7.5,1 L7,8 Z" fill="#ffffff" />
-        <path d="M3,7 L1,3.5 L6,4 Z" fill="#ffffff" />
-        <line x1="5.5" y1="5.5" x2="10" y2="10" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" />
+      {/* Стрела под сердцем */}
+      <g opacity="0.78">
+        {/* Оперение (3 пера) */}
+        <path d="M1,4 L7,0.5 L6.5,7.5 Z" fill="#ffffff" />
+        <path d="M2,7 L0,3.5 L6,3 Z" fill="#ffffff" opacity="0.85" />
+        <path d="M1.5,5.5 L5,5 L4,8 Z" fill="#ffffff" opacity="0.7" />
+        {/* Древко слева */}
+        <line x1="5" y1="5" x2="10" y2="10" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" />
+        {/* Древко справа */}
+        <line x1="30" y1="30" x2="35" y2="35" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" />
         {/* Наконечник */}
-        <line x1="26" y1="26" x2="31" y2="31" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" />
-        <path d="M34.5,34.5 L27.5,28.5 L29,35 Z" fill="#ffffff" />
+        <path d="M38.5,38.5 L31.5,32 L33,39 Z" fill="#ffffff" />
+        <path d="M38.5,38.5 L31.5,32 L34.5,33.5 Z" fill="#ffffff" opacity="0.7" />
       </g>
 
-      {/* Сердце (поверх стрелы) */}
-      <path
-        d="
-          M18,31
-          C7,23 2.5,17 2.5,11.5
-          C2.5,7 5.8,3.8 9.8,3.8
-          C13.2,3.8 16.2,5.8 18,9
-          C19.8,5.8 22.8,3.8 26.2,3.8
-          C30.2,3.8 33.5,7 33.5,11.5
-          C33.5,17 29,23 18,31
-          Z
-        "
-        fill="#ffffff"
-      />
-      {/* Лёгкий блик на левой доле сердца */}
-      <ellipse cx="10.5" cy="9" rx="2.2" ry="3" fill="rgba(255,255,255,0.55)" transform="rotate(-25 10.5 9)" />
+      {/* Сердце — heartbeat pulse */}
+      <g transform="translate(20 19.5)">
+        <g>
+          <animateTransform
+            attributeName="transform"
+            type="scale"
+            values="1;1.09;0.98;1.05;1"
+            keyTimes="0;0.12;0.28;0.42;1"
+            dur="1.6s"
+            repeatCount="indefinite"
+          />
+          {/* Тень */}
+          <path
+            d="M0,12.5 C-12,4.5 -17,-1.5 -17,-7 C-17,-12 -13,-15 -9,-15 C-5,-15 -2,-13.5 0,-10.5 C2,-13.5 5,-15 9,-15 C13,-15 17,-12 17,-7 C17,-1.5 12,4.5 0,12.5 Z"
+            fill="rgba(0,0,0,0.16)"
+            transform="translate(0 1.2)"
+          />
+          {/* Само сердце */}
+          <path
+            d="M0,12.5 C-12,4.5 -17,-1.5 -17,-7 C-17,-12 -13,-15 -9,-15 C-5,-15 -2,-13.5 0,-10.5 C2,-13.5 5,-15 9,-15 C13,-15 17,-12 17,-7 C17,-1.5 12,4.5 0,12.5 Z"
+            fill="#ffffff"
+          />
+          {/* Блик на левой доле */}
+          <ellipse cx="-9" cy="-10" rx="2.6" ry="3.4" fill="rgba(255,255,255,0.6)" transform="rotate(-25 -9 -10)" />
+          {/* Маленький блик-точка */}
+          <circle cx="-4.5" cy="-7" r="1" fill="rgba(255,255,255,0.7)" />
+        </g>
+      </g>
+
+      {/* Плавающие искры вокруг сердца */}
+      <g opacity="0.85">
+        {/* искра справа сверху */}
+        <g transform="translate(33 8)">
+          <g>
+            <animate attributeName="opacity" values="0.3;1;0.3" dur="2.2s" repeatCount="indefinite" />
+            <animateTransform attributeName="transform" type="scale" values="0.7;1.2;0.7" dur="2.2s" repeatCount="indefinite" />
+            <path d="M0,-3 C0.3,-1 1,-0.3 3,0 C1,0.3 0.3,1 0,3 C-0.3,1 -1,0.3 -3,0 C-1,-0.3 -0.3,-1 0,-3 Z" fill="#ffffff" />
+          </g>
+        </g>
+        {/* искра внизу слева */}
+        <g transform="translate(5 30)">
+          <g>
+            <animate attributeName="opacity" values="0.3;0.95;0.3" dur="2.6s" begin="0.6s" repeatCount="indefinite" />
+            <animateTransform attributeName="transform" type="scale" values="0.6;1.1;0.6" dur="2.6s" begin="0.6s" repeatCount="indefinite" />
+            <path d="M0,-2.5 C0.25,-0.8 0.8,-0.25 2.5,0 C0.8,0.25 0.25,0.8 0,2.5 C-0.25,0.8 -0.8,0.25 -2.5,0 C-0.8,-0.25 -0.25,-0.8 0,-2.5 Z" fill="#ffffff" />
+          </g>
+        </g>
+        {/* искра справа внизу */}
+        <g transform="translate(34 24)">
+          <g>
+            <animate attributeName="opacity" values="0.2;0.85;0.2" dur="2.4s" begin="1.2s" repeatCount="indefinite" />
+            <animateTransform attributeName="transform" type="scale" values="0.6;1;0.6" dur="2.4s" begin="1.2s" repeatCount="indefinite" />
+            <path d="M0,-2 C0.2,-0.7 0.7,-0.2 2,0 C0.7,0.2 0.2,0.7 0,2 C-0.2,0.7 -0.7,0.2 -2,0 C-0.7,-0.2 -0.2,-0.7 0,-2 Z" fill="#ffffff" />
+          </g>
+        </g>
+      </g>
     </svg>
   );
 }
 
-function StarSvg({ size = 11 }: { size?: number }) {
+function StarSvg({ size = 12 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="#ffffff" style={{ flexShrink: 0 }}>
-      <path
-        d="M12 2 L14.7 8.6 L21.8 9.2 L16.4 13.9 L18 20.9 L12 17.1 L6 20.9 L7.6 13.9 L2.2 9.2 L9.3 8.6 Z"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      style={{ flexShrink: 0, filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.25))' }}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* Звезда с мягким мерцанием через opacity */}
+      <g transform="translate(12 12)">
+        <g>
+          <animate attributeName="opacity" values="0.85;1;0.85" dur="2.4s" repeatCount="indefinite" />
+          <path
+            d="M0,-10 L2.94,-3.3 L10,-2.85 L4.5,1.6 L6.2,8.6 L0,4.8 L-6.2,8.6 L-4.5,1.6 L-10,-2.85 L-2.94,-3.3 Z"
+            fill="#ffffff"
+          />
+          {/* Внутренний блик */}
+          <path
+            d="M0,-5.5 L1.4,-1.8 L5,-1.5 L2.2,0.7 L3,4 L0,2.4 L-3,4 L-2.2,0.7 L-5,-1.5 L-1.4,-1.8 Z"
+            fill="rgba(255,255,255,0)"
+            stroke="rgba(255,255,255,0.4)"
+            strokeWidth="0.4"
+          />
+        </g>
+      </g>
     </svg>
   );
 }
