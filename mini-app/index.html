@@ -18,10 +18,41 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <title>Купидон</title>
+    <!-- ДИАГНОСТИКА: beacon синхронно при загрузке HTML, до любого JS модуля.
+         Если в логах ([client-diag-beacon] stage=html_loaded) нет записей с UA
+         iPhone — значит iOS WebView вообще не парсит наш HTML.
+         Если есть html_loaded но нет main_started — bundle не парсится.
+         Это позволит точно определить где iOS застревает. -->
+    <script>
+      (function() {
+        try {
+          var img = new Image();
+          img.src = '/api/v1/diag/beacon?stage=html_loaded&ts=' + Date.now()
+                  + '&w=' + (window.innerWidth || 0)
+                  + '&h=' + (window.innerHeight || 0)
+                  + '&tg=' + (window.Telegram ? 'yes' : 'no')
+                  + '&tgWA=' + (window.Telegram && window.Telegram.WebApp ? 'yes' : 'no');
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
     <!-- Telegram WebApp script — self-hosted был бы безопаснее (см. DEPLOYMENT_PLAYBOOK §13),
          но для старта подойдёт CDN. Поменяем на self-hosted в Phase L.
          SRI integrity не ставим — TG может обновлять файл, integrity сломает загрузку. -->
     <script src="https://telegram.org/js/telegram-web-app.js" crossorigin="anonymous"></script>
+    <script>
+      // Второй beacon — после загрузки telegram-web-app.js. Если этот beacon
+      // не приходит — CDN telegram.org заблокирован у iOS-юзера (ВПН, оператор).
+      (function() {
+        try {
+          var img = new Image();
+          img.src = '/api/v1/diag/beacon?stage=tgjs_loaded'
+                  + '&ts=' + Date.now()
+                  + '&tgWA=' + (window.Telegram && window.Telegram.WebApp ? 'yes' : 'no')
+                  + '&initData=' + (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData ? 'yes' : 'no')
+                  + '&platform=' + (window.Telegram && window.Telegram.WebApp ? (window.Telegram.WebApp.platform || 'unk') : 'no-tg');
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

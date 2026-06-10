@@ -18,12 +18,25 @@ const MIN_SPLASH_MS = 800;
 // можно было висеть на splash до 3 минут (60s timeout × 3 retries).
 const MAX_SPLASH_MS = 12_000;
 
+// Локальный beacon — дублирует логику из main.tsx, но независим от него.
+function stageBeacon(stage: string, extras: Record<string, any> = {}) {
+  try {
+    const qs = new URLSearchParams({ stage, ts: String(Date.now()) });
+    for (const [k, v] of Object.entries(extras)) {
+      qs.append(k, String(v).slice(0, 200));
+    }
+    const img = new Image();
+    img.src = '/api/v1/diag/beacon?' + qs.toString();
+  } catch (_) {}
+}
+
 export function SplashScreen() {
   const { me, loading } = useMe();
   const nav = useNavigate();
 
   useEffect(() => {
     const startedAt = Date.now();
+    stageBeacon('splash_mounted', { loading: loading ? 1 : 0, me: me ? 1 : 0 });
 
     let cancelled = false;
     function tryRedirect() {
@@ -35,15 +48,18 @@ export function SplashScreen() {
       setTimeout(() => {
         if (cancelled) return;
         if (!me) {
-          // не смогли получить /me — отправим на онбординг чтобы UI не падал
+          stageBeacon('splash_nav', { to: 'onboarding', reason: 'no_me' });
           nav('/onboarding', { replace: true });
           return;
         }
         if (me.onboarding_done && me.questionnaire_done) {
+          stageBeacon('splash_nav', { to: 'home', tutorial: me.tutorial_done ? 1 : 0 });
           nav('/', { replace: true });
         } else if (me.onboarding_done) {
+          stageBeacon('splash_nav', { to: 'questionnaire' });
           nav('/questionnaire', { replace: true });
         } else {
+          stageBeacon('splash_nav', { to: 'onboarding', reason: 'first_time' });
           nav('/onboarding', { replace: true });
         }
       }, wait);
@@ -56,7 +72,7 @@ export function SplashScreen() {
     // Лучше показать пустой онбординг чем бесконечный splash.
     const failsafe = setTimeout(() => {
       if (cancelled) return;
-      // eslint-disable-next-line no-console
+      stageBeacon('splash_failsafe_fired', { loading: loading ? 1 : 0, me: me ? 1 : 0 });
       console.warn('[Splash] failsafe fired — loading hung, forcing /onboarding');
       nav('/onboarding', { replace: true });
     }, MAX_SPLASH_MS);

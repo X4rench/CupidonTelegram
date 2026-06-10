@@ -21,21 +21,42 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { initSentry } from './sentry';
 import './theme.css';
 
+// Beacon-логирование стадий загрузки — для отладки iOS-зависаний.
+// Использует <img>.src вместо fetch, чтобы работать даже без initData
+// и не зависеть от React. URL → backend /api/v1/diag/beacon → файловый лог.
+function stageBeacon(stage: string, extras: Record<string, any> = {}) {
+  try {
+    const qs = new URLSearchParams({ stage, ts: String(Date.now()) });
+    for (const [k, v] of Object.entries(extras)) {
+      qs.append(k, String(v).slice(0, 200));
+    }
+    const img = new Image();
+    img.src = '/api/v1/diag/beacon?' + qs.toString();
+  } catch (_) { /* ignore */ }
+}
+
+stageBeacon('main_started');
+
 // Phase J: Sentry — самым первым, чтобы поймать ошибки в TG SDK init.
 initSentry();
+stageBeacon('sentry_init_done');
 
 const root = createRoot(document.getElementById('root')!);
+stageBeacon('react_root_created');
 
 (async () => {
   try {
     await initTelegram();
-  } catch (err) {
+    stageBeacon('init_tg_done', { hasInitData: hasInitData() ? 1 : 0 });
+  } catch (err: any) {
     console.warn('[main] Telegram SDK init failed:', err);
+    stageBeacon('init_tg_failed', { err: String(err?.message || err).slice(0, 100) });
   }
 
   if (!hasInitData()) {
     // Публичный режим — Landing + legal-страницы. Доступны через прямые URL
     // без авторизации в TG: https://cupidonai.ru/privacy и /terms.
+    stageBeacon('render_landing');
     root.render(
       <ThemeProvider>
         <BrowserRouter>
@@ -50,6 +71,7 @@ const root = createRoot(document.getElementById('root')!);
     return;
   }
 
+  stageBeacon('render_app');
   root.render(
     <StrictMode>
       <ThemeProvider>
@@ -58,3 +80,18 @@ const root = createRoot(document.getElementById('root')!);
     </StrictMode>
   );
 })();
+
+// Глобальный onerror — чтобы поймать любые runtime-ошибки, которые
+// мог пропустить React/Sentry. Особенно полезно на iOS WebKit.
+window.addEventListener('error', (ev) => {
+  stageBeacon('window_error', {
+    msg: String(ev?.message || '').slice(0, 150),
+    src: String(ev?.filename || '').slice(0, 100),
+    line: String(ev?.lineno || ''),
+  });
+});
+window.addEventListener('unhandledrejection', (ev) => {
+  stageBeacon('unhandled_rejection', {
+    reason: String(ev?.reason?.message || ev?.reason || '').slice(0, 150),
+  });
+});

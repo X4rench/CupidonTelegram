@@ -27,7 +27,7 @@ import pollsRouter        from './routes/polls.js';
 import paymentsRouter     from './routes/payments.js';
 import partnersRouter     from './routes/partners.js';
 import { communityRouter, communityAdminRouter } from './routes/community.js';
-import diagRouter         from './routes/diag.js';
+import diagRouter, { beaconRouter } from './routes/diag.js';
 import telegramRouter     from './routes/telegram.js'; // /telegram/webhook
 import yookassaRouter     from './routes/yookassa.js'; // /yookassa/webhook
 
@@ -99,6 +99,10 @@ app.use('/api/v1/telegram', telegramRouter);
 // ЮКасса присылает уведомления о платежах со своей стороны (не из Mini App) —
 // проверяет себя через X-YK-Webhook-Token (secret-token из YK_WEBHOOK_SECRET).
 app.use('/api/v1/yookassa', yookassaRouter);
+
+// Beacon — публичный GET для самой ранней диагностики (HTML/main.tsx до initData).
+// Должен быть ДО requireInitData, иначе iOS-пользователи без initData не залогируются.
+app.use('/api/v1/diag', beaconRouter);
 
 // ── Все остальные /api/v1/* требуют initData ─────────────────────────────────
 app.use('/api/v1', requireInitData);

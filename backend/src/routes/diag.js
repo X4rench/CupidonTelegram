@@ -8,12 +8,19 @@
 // префиксом [client-diag], чтобы потом journalctl -u cupidon | grep
 // поднял эти записи.
 //
-// Защита: requireInitData выше, плюс global rate-limit. Body size
+// GET /api/v1/diag/beacon  (БЕЗ initData — public endpoint)
+//   query: stage=...&ua=...&...
+// Используется на самых ранних стадиях загрузки (HTML, main.tsx)
+// когда initData ещё может быть недоступна. Логирует через [client-diag-beacon].
+//
+// Защита: requireInitData выше для /client-log, плюс global rate-limit. Body size
 // ограничен express.json (по умолчанию 100KB) + наш truncate до 10KB.
 // ═══════════════════════════════════════════════════════════════
 import { Router } from 'express';
 
 const router = Router();
+// Beacon route — отдельный без auth. Монтируется в src/index.js до requireInitData.
+export const beaconRouter = Router();
 
 const MAX_DATA_BYTES = 10_000;
 
@@ -32,6 +39,31 @@ router.post('/client-log', (req, res) => {
                `data=${dataStr}`);
 
   res.json({ ok: true });
+});
+
+// Public beacon — GET, без auth. Все query-параметры идут в лог.
+// Frontend стучится через new Image().src = '/api/v1/diag/beacon?stage=...'
+// — это работает даже без initData и до любого fetch'а.
+beaconRouter.get('/beacon', (req, res) => {
+  const q = req.query || {};
+  const stage = String(q.stage || 'unknown').slice(0, 80);
+  const ua = String(req.headers['user-agent'] || '').slice(0, 150);
+  // Сбрасываем все query кроме stage в data
+  const data = {};
+  for (const [k, v] of Object.entries(q)) {
+    if (k === 'stage' || k === 'ts') continue;
+    data[k] = String(v).slice(0, 200);
+  }
+  let dataStr = '';
+  try { dataStr = JSON.stringify(data); } catch (_) { dataStr = '[unserializable]'; }
+
+  console.warn(`[client-diag-beacon] stage=${stage} ip=${req.ip} ua="${ua}" data=${dataStr}`);
+
+  // Возвращаем 1×1 GIF — стандартный трюк для трекинговых пикселей
+  const buf = Buffer.from('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
+  res.set('Content-Type', 'image/gif');
+  res.set('Cache-Control', 'no-store');
+  res.send(buf);
 });
 
 export default router;
