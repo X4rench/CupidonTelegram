@@ -743,8 +743,6 @@ function SubsTab() {
           </div>
         )}
       </Card>
-        </>
-      )}
     </div>
   );
 }
