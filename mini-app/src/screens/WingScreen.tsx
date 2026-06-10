@@ -17,6 +17,7 @@ import { SecondaryButton } from '../components/SecondaryButton';
 import { AutoGrowTextarea } from '../components/AutoGrowTextarea';
 import { IOSPasteHint } from '../components/IOSPasteHint';
 import { LimitReachedSheet, type LimitReason } from '../components/LimitReachedSheet';
+import { deleteWingContact } from '../utils/dialogActions';
 import { storage } from '../utils/storage';
 
 const WING_STORAGE_KEY = 'wing_per_girl_state';
@@ -401,6 +402,18 @@ export function WingScreen() {
           {sortedContacts.map(c => {
             const id = String(c.id);
             const active = activeContactId === id;
+            const onDeleteContact = async (e: React.MouseEvent | React.PointerEvent) => {
+              e.stopPropagation();
+              e.preventDefault();
+              if (!window.confirm(`Удалить контакт «${c.name}»? Анализ переписки тоже удалится.`)) return;
+              impactHaptic('medium');
+              const ok = await deleteWingContact(id);
+              if (ok) {
+                setContacts(prev => prev.filter(x => String(x.id) !== id));
+                // Если удалили активный — переключаемся на «Без контакта»
+                if (active) setActiveContactId(NO_CONTACT_ID);
+              }
+            };
             return (
               <button
                 key={id}
@@ -412,6 +425,24 @@ export function WingScreen() {
                     — это и был «0 перед именем» в табах контактов Стрелы. */}
                 {c.is_pinned ? <PinIcon size={10} color={active ? '#fff' : 'var(--text-accent)'} /> : null}
                 <span style={active ? styles.tabActiveText : styles.tabText}>{c.name}</span>
+                {/* Маленький крестик — span с onClick (нельзя button-в-button).
+                    stopPropagation чтобы тап не открывал контакт. */}
+                <span
+                  role="button"
+                  aria-label="Удалить контакт"
+                  onClick={onDeleteContact}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  style={{
+                    ...styles.tabCloseBtn,
+                    color: active ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)',
+                  }}
+                >
+                  <svg width={9} height={9} viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" strokeWidth={2.8} strokeLinecap="round">
+                    <line x1={5} y1={5} x2={19} y2={19} />
+                    <line x1={19} y1={5} x2={5} y2={19} />
+                  </svg>
+                </span>
               </button>
             );
           })}
@@ -876,6 +907,16 @@ const styles: Record<string, CSSProperties> = {
   },
   tabText: { fontSize: 13, color: 'var(--text-secondary)' },
   tabActiveText: { fontSize: 13, color: '#fff', fontWeight: 600 },
+  // Маленький крестик удаления контакта. inline-flex span (button-в-button нельзя).
+  // Только визуальная зона тапа ~18×18, иконка 9×9. Не агрессивный, серый.
+  tabCloseBtn: {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    width: 16, height: 16,
+    marginLeft: 4, marginRight: -4,
+    borderRadius: 8,
+    cursor: 'pointer',
+    opacity: 0.65,
+  },
   addTab: {
     flexShrink: 0,
     display: 'inline-flex',
