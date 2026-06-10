@@ -733,11 +733,35 @@ export const adminApi = {
       `/admin/users/${tgId}/grant-subscription`,
       { method: 'POST', body: JSON.stringify({ plan, days }) },
     ),
-  revokeSubscription: (tgId: number | string) =>
-    fetchAuthed<{ ok: boolean; revoked?: { plan: string; was_expires: string }; error?: string }>(
+  revokeSubscription: (tgId: number | string, target: 'sub' | 'day_pass' | 'all' = 'all') =>
+    fetchAuthed<{
+      ok: boolean;
+      revoked?: {
+        sub: { plan: string; was_expires: string } | null;
+        day_pass: { had_tg_quota: number; had_sim_quota: number } | null;
+      };
+      error?: string;
+    }>(
       `/admin/users/${tgId}/revoke-subscription`,
-      { method: 'POST', body: JSON.stringify({}) },
+      { method: 'POST', body: JSON.stringify({ target }) },
     ),
+  /** Список юзеров с активной подпиской или Day Pass — для админки. */
+  getSubscribers: () =>
+    fetchAuthed<{
+      ok: boolean;
+      subscribers: Array<{
+        telegram_user_id: number;
+        first_name: string | null;
+        last_name: string | null;
+        username: string | null;
+        sub_tier: 'free' | 'basic' | 'premium';
+        sub_expires_at: string | null;
+        tg_bonus_quota: number;
+        sim_bonus_quota: number;
+        bonus_expires_at: string | null;
+        active_plan: string | null;
+      }>;
+    }>('/admin/subscribers'),
 };
 
 // ── Partner program ─────────────────────────────────────────────────────────

@@ -524,7 +524,13 @@ router.get('/users/:tgId', (req, res) => {
   const tgId = parseInt(req.params.tgId, 10);
   if (!Number.isFinite(tgId)) return res.status(400).json({ ok: false, error: 'Невалидный TG ID' });
 
-  const user = db.get('SELECT id, telegram_user_id, first_name, last_name, username, sub_tier, sub_expires_at, created_at, last_seen_at FROM users WHERE telegram_user_id = ?', tgId);
+  // Возвращаем bonus_quota / sim_bonus_quota / bonus_expires_at тоже —
+  // нужно для отображения количества Day Pass'ов и кнопки «Отозвать Day Pass».
+  const user = db.get(`SELECT id, telegram_user_id, first_name, last_name, username,
+                              sub_tier, sub_expires_at,
+                              tg_bonus_quota, sim_bonus_quota, bonus_expires_at,
+                              created_at, last_seen_at
+                       FROM users WHERE telegram_user_id = ?`, tgId);
   if (!user) return res.status(404).json({ ok: false, error: 'Юзер не найден. Он должен сначала открыть Mini App.' });
 
   // Активная подписка (если есть)
@@ -537,6 +543,29 @@ router.get('/users/:tgId', (req, res) => {
   );
 
   res.json({ ok: true, user, active_subscription: sub || null });
+});
+
+// ── GET /api/v1/admin/subscribers ─────────────────────────────────────────────
+// Список юзеров у которых есть АКТИВНАЯ платная подписка ИЛИ активный Day Pass
+// (tg_bonus_quota > 0 и bonus_expires_at > now). Используется в админке для
+// тапа на юзера → переход к управлению (revoke / etc).
+router.get('/subscribers', (req, res) => {
+  // Подписки: только не-истёкшие
+  const subRows = db.all(
+    `SELECT u.telegram_user_id, u.first_name, u.last_name, u.username,
+            u.sub_tier, u.sub_expires_at,
+            u.tg_bonus_quota, u.sim_bonus_quota, u.bonus_expires_at,
+            (SELECT MAX(s.plan) FROM subscriptions s
+              WHERE s.telegram_user_id = u.telegram_user_id
+                AND datetime(s.expires_at) > datetime('now')) as active_plan
+       FROM users u
+      WHERE u.sub_tier IN ('basic', 'premium')
+         OR (u.tg_bonus_quota > 0 AND u.bonus_expires_at IS NOT NULL
+             AND datetime(u.bonus_expires_at) > datetime('now'))
+      ORDER BY datetime(u.sub_expires_at) DESC NULLS LAST, u.telegram_user_id DESC
+      LIMIT 200`,
+  );
+  res.json({ ok: true, subscribers: subRows });
 });
 
 // ── POST /api/v1/admin/users/:tgId/grant-subscription ───────────────────────
@@ -657,45 +686,117 @@ router.post('/users/:tgId/grant-subscription', (req, res) => {
 });
 
 // ── POST /api/v1/admin/users/:tgId/revoke-subscription ──────────────────────
-// Отозвать активную подписку — expires_at = now, auto_renew = 0.
+// Отозвать активную подписку / Day Pass / всё.
+// body: { target?: 'sub' | 'day_pass' | 'all' } — default 'all'
+//   sub      — обнулить только Basic/Premium подписку (sub_tier=free)
+//   day_pass — обнулить tg_bonus_quota + sim_bonus_quota + bonus_expires_at
+//   all      — обе ветки
 router.post('/users/:tgId/revoke-subscription', (req, res) => {
-  const tgId = parseInt(req.params.tgId, 10);
-  if (!Number.isFinite(tgId)) return res.status(400).json({ ok: false, error: 'Невалидный TG ID' });
+  try {
+    const tgId = parseInt(req.params.tgId, 10);
+    if (!Number.isFinite(tgId)) return res.status(400).json({ ok: false, error: 'Невалидный TG ID' });
 
-  const user = db.get('SELECT id FROM users WHERE telegram_user_id = ?', tgId);
-  if (!user) return res.status(404).json({ ok: false, error: 'Юзер не найден' });
+    const target = (req.body?.target || 'all');
+    if (!['sub', 'day_pass', 'all'].includes(target)) {
+      return res.status(400).json({ ok: false, error: "target должен быть 'sub', 'day_pass' или 'all'" });
+    }
 
-  const active = db.get(
-    `SELECT id, plan, expires_at FROM subscriptions
-     WHERE telegram_user_id = ? AND datetime(expires_at) > datetime('now')
-     ORDER BY datetime(expires_at) DESC LIMIT 1`,
-    tgId
-  );
-  if (!active) {
-    return res.status(404).json({ ok: false, error: 'Активной подписки нет — нечего отзывать' });
+    const user = db.get(
+      `SELECT id, tg_bonus_quota, sim_bonus_quota, bonus_expires_at
+         FROM users WHERE telegram_user_id = ?`,
+      tgId,
+    );
+    if (!user) return res.status(404).json({ ok: false, error: 'Юзер не найден' });
+
+    const revokedSubInfo = { plan: null, was_expires: null };
+    let revokedSub = false;
+    let revokedDayPass = false;
+
+    db.transaction(() => {
+      // Отзыв подписки Basic/Premium
+      if (target === 'sub' || target === 'all') {
+        const active = db.get(
+          `SELECT id, plan, expires_at FROM subscriptions
+            WHERE telegram_user_id = ? AND datetime(expires_at) > datetime('now')
+            ORDER BY datetime(expires_at) DESC LIMIT 1`,
+          tgId,
+        );
+        if (active) {
+          db.run(
+            `UPDATE subscriptions SET expires_at = datetime('now'), cancelled_at = datetime('now'), auto_renew = 0 WHERE id = ?`,
+            active.id,
+          );
+          db.run(
+            `UPDATE users SET sub_tier = 'free', sub_expires_at = NULL WHERE telegram_user_id = ?`,
+            tgId,
+          );
+          revokedSubInfo.plan = active.plan;
+          revokedSubInfo.was_expires = active.expires_at;
+          revokedSub = true;
+        }
+      }
+
+      // Отзыв Day Pass — обнуляем bonus quotas
+      if (target === 'day_pass' || target === 'all') {
+        const hadDayPass = (user.tg_bonus_quota > 0) || (user.sim_bonus_quota > 0) || !!user.bonus_expires_at;
+        if (hadDayPass) {
+          db.run(
+            `UPDATE users
+                SET tg_bonus_quota   = 0,
+                    sim_bonus_quota  = 0,
+                    bonus_expires_at = NULL
+              WHERE telegram_user_id = ?`,
+            tgId,
+          );
+          revokedDayPass = true;
+        }
+      }
+
+      // Audit-лог
+      if (revokedSub || revokedDayPass) {
+        const adminTgId = req.tgUser?.id || 'cli';
+        db.run(
+          `INSERT INTO admin_audit_log (action, ip, user_agent, details) VALUES (?, ?, ?, ?)`,
+          target === 'day_pass' ? 'revoke_day_pass'
+            : target === 'sub'   ? 'revoke_subscription'
+            : 'revoke_all',
+          req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown',
+          req.headers['user-agent'] || 'unknown',
+          JSON.stringify({
+            admin_tg: adminTgId, target_tg: tgId, target,
+            revoked_sub: revokedSub, revoked_day_pass: revokedDayPass,
+            was_plan: revokedSubInfo.plan,
+            had_tg_quota: user.tg_bonus_quota,
+            had_sim_quota: user.sim_bonus_quota,
+          }),
+        );
+      }
+    })();
+
+    if (!revokedSub && !revokedDayPass) {
+      return res.status(404).json({
+        ok: false,
+        error: target === 'sub' ? 'Активной подписки нет'
+              : target === 'day_pass' ? 'Активного Day Pass нет'
+              : 'У юзера ни подписки, ни Day Pass — нечего отзывать',
+      });
+    }
+
+    console.log(`[admin] revoke ${target}: admin=${req.tgUser?.id || 'cli'} target=${tgId} sub=${revokedSub} day_pass=${revokedDayPass}`);
+    res.json({
+      ok: true,
+      revoked: {
+        sub: revokedSub ? revokedSubInfo : null,
+        day_pass: revokedDayPass ? {
+          had_tg_quota: user.tg_bonus_quota,
+          had_sim_quota: user.sim_bonus_quota,
+        } : null,
+      },
+    });
+  } catch (err) {
+    console.error('[admin] revoke-subscription error:', err);
+    res.status(500).json({ ok: false, error: 'Не удалось отозвать: ' + (err?.message || 'unknown') });
   }
-
-  db.transaction(() => {
-    db.run(
-      `UPDATE subscriptions SET expires_at = datetime('now'), cancelled_at = datetime('now'), auto_renew = 0 WHERE id = ?`,
-      active.id
-    );
-    db.run(
-      `UPDATE users SET sub_tier = 'free', sub_expires_at = NULL WHERE telegram_user_id = ?`,
-      tgId
-    );
-    const adminTgId = req.tgUser?.id || 'cli';
-    db.run(
-      `INSERT INTO admin_audit_log (action, ip, user_agent, details) VALUES (?, ?, ?, ?)`,
-      'revoke_subscription',
-      req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown',
-      req.headers['user-agent'] || 'unknown',
-      JSON.stringify({ admin_tg: adminTgId, target_tg: tgId, revoked_plan: active.plan, was_expires: active.expires_at }),
-    );
-  })();
-
-  console.log(`[admin] revoke_subscription: admin=${req.tgUser?.id || 'cli'} target=${tgId} was_plan=${active.plan}`);
-  res.json({ ok: true, revoked: { plan: active.plan, was_expires: active.expires_at } });
 });
 
 export default router;

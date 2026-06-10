@@ -465,17 +465,23 @@ function SubsTab() {
     }
   };
 
-  const revoke = async () => {
-    if (!user || !activeSub) return;
-    if (!confirm(`Отозвать активную подписку ${activeSub.plan} у юзера ${user.telegram_user_id}? Доступ прекратится прямо сейчас.`)) return;
+  const revoke = async (target: 'sub' | 'day_pass' | 'all') => {
+    if (!user) return;
+    const label = target === 'sub' ? `подписку ${activeSub?.plan || ''}`
+                : target === 'day_pass' ? 'Day Pass (бонусные запросы)'
+                : 'всё (подписку и Day Pass)';
+    if (!confirm(`Отозвать у юзера ${user.telegram_user_id}: ${label}? Это необратимо (но можно выдать заново).`)) return;
     setLoading(true);
     setError(null);
     setMessage(null);
     try {
-      const res = await adminApi.revokeSubscription(user.telegram_user_id);
+      const res = await adminApi.revokeSubscription(user.telegram_user_id, target);
       if (res.ok) {
         notificationHaptic('success');
-        setMessage(`✓ Подписка ${res.revoked?.plan} отозвана`);
+        const parts: string[] = [];
+        if (res.revoked?.sub)      parts.push(`подписка ${res.revoked.sub.plan}`);
+        if (res.revoked?.day_pass) parts.push(`Day Pass (${res.revoked.day_pass.had_tg_quota} запр / ${res.revoked.day_pass.had_sim_quota} сим)`);
+        setMessage(`✓ Отозвано: ${parts.join(' + ') || 'ничего не было'}`);
         await lookup();
       } else {
         setError(res.error || 'Не удалось отозвать');
@@ -488,6 +494,34 @@ function SubsTab() {
       setLoading(false);
     }
   };
+
+  // Список подписчиков — отдельно от единичного поиска
+  const [subscribers, setSubscribers] = useState<any[] | null>(null);
+  const [subsLoading, setSubsLoading] = useState(false);
+  const loadSubscribers = async () => {
+    setSubsLoading(true);
+    try {
+      const res = await adminApi.getSubscribers();
+      if (res.ok) setSubscribers(res.subscribers || []);
+    } catch (_) {}
+    finally { setSubsLoading(false); }
+  };
+
+  const pickSubscriber = (tgId: number) => {
+    selectionHaptic();
+    setTgIdInput(String(tgId));
+    // Сразу подгружаем юзера
+    setTimeout(() => lookup(), 0);
+  };
+
+  // Активный Day Pass если bonus_expires_at > now
+  const hasActiveDayPass = (() => {
+    const u = user;
+    if (!u?.bonus_expires_at) return false;
+    const expIso = u.bonus_expires_at;
+    const ms = Date.parse(/[Zz]|[+\-]\d\d:?\d\d$/.test(expIso) ? expIso : expIso.replace(' ', 'T') + 'Z');
+    return Number.isFinite(ms) && ms > Date.now() && ((u.tg_bonus_quota || 0) > 0 || (u.sim_bonus_quota || 0) > 0);
+  })();
 
   return (
     <div style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -537,6 +571,28 @@ function SubsTab() {
               {activeSub && (
                 <div style={{ marginTop: 4, padding: 8, background: 'var(--accent-soft)', borderRadius: 6 }}>
                   Активная подписка: <strong>{activeSub.plan}</strong> ({activeSub.source})
+                </div>
+              )}
+              {/* Day Pass info — отдельный блок, не пересекается с подпиской */}
+              {hasActiveDayPass && (
+                <div style={{
+                  marginTop: 4, padding: 8,
+                  background: 'rgba(34,197,94,0.10)',
+                  border: '1px solid rgba(34,197,94,0.25)',
+                  borderRadius: 6,
+                }}>
+                  ⚡ <strong>Активный Day Pass:</strong>{' '}
+                  {user.tg_bonus_quota || 0} запросов · {user.sim_bonus_quota || 0} сим-сообщений
+                  {user.bonus_expires_at && (
+                    <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>
+                      · сгорит {new Date(user.bonus_expires_at).toLocaleString('ru-RU')}
+                    </span>
+                  )}
+                </div>
+              )}
+              {!hasActiveDayPass && (user.tg_bonus_quota > 0 || user.sim_bonus_quota > 0) && (
+                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                  Day Pass истёк, остатки очистятся при следующем запросе юзера.
                 </div>
               )}
             </div>
@@ -595,18 +651,98 @@ function SubsTab() {
             </GradientButton>
           </Card>
 
-          {activeSub && (
+          {(activeSub || hasActiveDayPass) && (
             <Card style={{ borderColor: 'var(--status-warning)' }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>Отозвать подписку</div>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Отозвать</div>
               <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-muted)' }}>
                 Доступ прекратится <strong>прямо сейчас</strong>. Действие необратимо
                 (но можно выдать заново).
               </p>
-              <SecondaryButton onClick={revoke} full disabled={loading} style={{ color: 'var(--status-negative)' }}>
-                Отозвать {activeSub.plan}
-              </SecondaryButton>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {activeSub && (
+                  <SecondaryButton onClick={() => revoke('sub')} full disabled={loading} style={{ color: 'var(--status-negative)' }}>
+                    Отозвать подписку {activeSub.plan}
+                  </SecondaryButton>
+                )}
+                {hasActiveDayPass && (
+                  <SecondaryButton onClick={() => revoke('day_pass')} full disabled={loading} style={{ color: 'var(--status-negative)' }}>
+                    Отозвать Day Pass ({user.tg_bonus_quota || 0} запр / {user.sim_bonus_quota || 0} сим)
+                  </SecondaryButton>
+                )}
+                {activeSub && hasActiveDayPass && (
+                  <SecondaryButton onClick={() => revoke('all')} full disabled={loading} style={{ color: 'var(--status-negative)', fontWeight: 700 }}>
+                    Отозвать всё разом
+                  </SecondaryButton>
+                )}
+              </div>
             </Card>
           )}
+        </>
+      )}
+
+      {/* Список подписчиков — отдельная карточка */}
+      <Card>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ fontWeight: 600 }}>Все подписчики</div>
+          <SecondaryButton onClick={loadSubscribers} disabled={subsLoading}>
+            {subsLoading ? 'Загрузка…' : subscribers ? 'Обновить' : 'Показать'}
+          </SecondaryButton>
+        </div>
+        {subscribers && subscribers.length === 0 && (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: 12 }}>
+            Никого с активной подпиской / Day Pass нет
+          </div>
+        )}
+        {subscribers && subscribers.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 360, overflowY: 'auto' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+              Тапни на юзера → подгрузится в форму выше, можно отозвать. Всего: {subscribers.length}
+            </div>
+            {subscribers.map(s => {
+              const nowMs = Date.now();
+              const subActive = !!s.active_plan;
+              const dpActive = (() => {
+                if (!s.bonus_expires_at) return false;
+                const iso = s.bonus_expires_at;
+                const m = Date.parse(/[Zz]|[+\-]\d\d:?\d\d$/.test(iso) ? iso : iso.replace(' ', 'T') + 'Z');
+                return Number.isFinite(m) && m > nowMs;
+              })();
+              return (
+                <div
+                  key={s.telegram_user_id}
+                  onClick={() => pickSubscriber(s.telegram_user_id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 10px',
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {s.first_name || ''} {s.last_name || ''}
+                      {s.username && <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 4 }}>@{s.username}</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      TG <strong>{s.telegram_user_id}</strong>
+                      {' · '}
+                      {subActive && <span style={{ color: 'var(--text-accent)', fontWeight: 600 }}>{s.active_plan}</span>}
+                      {subActive && dpActive && ' + '}
+                      {dpActive && <span style={{ color: 'var(--status-positive)', fontWeight: 600 }}>Day Pass ({s.tg_bonus_quota || 0})</span>}
+                    </div>
+                  </div>
+                  <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
+                       stroke="var(--text-muted)" strokeWidth={2}>
+                    <polyline points="9,18 15,12 9,6" />
+                  </svg>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
         </>
       )}
     </div>
