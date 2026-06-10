@@ -12,54 +12,71 @@
 //   - Внизу: Назад (secondary) | Дальше/Начать (gradient primary).
 //   - Top-right: «Пропустить» (text-only, мелкий).
 // ═══════════════════════════════════════════════════════════════
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode, type ComponentType } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GradientButton } from '../components/GradientButton';
 import { SecondaryButton } from '../components/SecondaryButton';
+import {
+  TargetIcon, ChatIcon, SparkleIcon, ShieldIcon, BookIcon,
+} from '../components/TutorialIcons';
 import { useBackButton } from '../utils/backButton';
 import { selectionHaptic, impactHaptic } from '../utils/haptics';
 import { useMe } from '../contexts/MeContext';
 import { updateMe } from '../api';
 
+// accentSolid/accent2Solid — насыщенные цвета для самой SVG-иконки
+// (без полупрозрачности — она нужна только blur-кругу позади).
 interface Slide {
-  emoji: string;
+  Icon: ComponentType<{ accent: string; accent2: string; size?: number }>;
+  iconAccent: string;
+  iconAccent2: string;
   title: string;
   text: string;
-  accent: string;    // основной цвет для blur-круга
-  accent2: string;   // вторичный цвет для градиента
+  accent: string;    // основной цвет для blur-круга (с альфой)
+  accent2: string;   // вторичный цвет для градиента blur-круга
 }
 
 const SLIDES: Slide[] = [
   {
-    emoji: '🎯',
+    Icon: TargetIcon,
+    iconAccent: '#F43F5E',
+    iconAccent2: '#A855F7',
     title: 'Стрела — анализ переписки',
     text: 'Вставь свой чат с ней — AI скажет где ты теряешь интерес, какой её тип, и даст варианты ответа.',
     accent: 'rgba(244,63,94,0.55)',
     accent2: 'rgba(168,85,247,0.45)',
   },
   {
-    emoji: '💬',
+    Icon: ChatIcon,
+    iconAccent: '#A855F7',
+    iconAccent2: '#6366F1',
     title: 'Симулятор знакомства',
     text: 'Выбери типаж и место — AI отыграет роль девушки. В конце — разбор где ты молодец и где зашёл слишком далеко.',
     accent: 'rgba(168,85,247,0.55)',
     accent2: 'rgba(99,102,241,0.45)',
   },
   {
-    emoji: '✨',
+    Icon: SparkleIcon,
+    iconAccent: '#EC4899',
+    iconAccent2: '#F43F5E',
     title: 'Первое сообщение',
     text: 'Скажи что знаешь о ней — AI напишет 3 варианта первого сообщения, которые не выглядят как «привет, как дела».',
     accent: 'rgba(236,72,153,0.55)',
     accent2: 'rgba(244,63,94,0.45)',
   },
   {
-    emoji: '🛡️',
+    Icon: ShieldIcon,
+    iconAccent: '#6366F1',
+    iconAccent2: '#3B82F6',
     title: 'Разбор отказа',
     text: 'Откатилось? Покажи переписку — AI разберёт где именно ты сорвался и какие принципы стоит запомнить.',
     accent: 'rgba(99,102,241,0.55)',
     accent2: 'rgba(59,130,246,0.45)',
   },
   {
-    emoji: '📚',
+    Icon: BookIcon,
+    iconAccent: '#A855F7',
+    iconAccent2: '#EC4899',
     title: 'Теория и сообщество',
     text: 'Короткие принципы + ежедневный опрос + лента диалогов других ребят с разборами.',
     accent: 'rgba(168,85,247,0.55)',
@@ -170,17 +187,20 @@ export function TutorialScreen() {
 }
 
 function SlideView({ slide }: { slide: Slide }): ReactNode {
+  const { Icon } = slide;
   return (
     <div style={styles.slide}>
       <div style={styles.heroWrap}>
-        {/* Большой blur-круг под emoji */}
+        {/* Большой blur-круг под иконкой */}
         <div
           style={{
             ...styles.blurCircle,
             background: `radial-gradient(circle at center, ${slide.accent} 0%, ${slide.accent2} 45%, transparent 70%)`,
           }}
         />
-        <div style={styles.emoji}>{slide.emoji}</div>
+        <div style={styles.iconWrap}>
+          <Icon accent={slide.iconAccent} accent2={slide.iconAccent2} size={130} />
+        </div>
       </div>
 
       <div style={styles.textBlock}>
@@ -271,12 +291,12 @@ const styles: Record<string, CSSProperties> = {
     opacity: 0.9,
     pointerEvents: 'none',
   },
-  emoji: {
-    fontSize: 88,
-    lineHeight: 1,
+  iconWrap: {
     position: 'relative',
     zIndex: 2,
-    filter: 'drop-shadow(0 4px 18px rgba(0,0,0,0.25))',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   textBlock: {

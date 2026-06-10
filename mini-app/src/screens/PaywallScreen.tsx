@@ -271,7 +271,7 @@ export function PaywallScreen() {
       {/* Hero */}
       <div style={styles.hero}>
         <div style={styles.heroIcon}>
-          <span style={{ fontSize: 30, lineHeight: 1 }}>💘</span>
+          <CupidHeartSvg />
         </div>
         <h1 style={styles.heroTitle}>{heading}</h1>
         <p style={styles.heroSub}>{subheading}</p>
@@ -420,7 +420,10 @@ function PlanCard({ cfg, price, periodSubtitle, perMonth, discountPct, isCurrent
       position: 'relative',
     }}>
       {cfg.badge && (
-        <div style={styles.popularBadge}>⭐ {cfg.badge}</div>
+        <div style={styles.popularBadge}>
+          <StarSvg />
+          <span style={{ marginLeft: 5 }}>{cfg.badge}</span>
+        </div>
       )}
 
       <div style={styles.planHead}>
@@ -525,6 +528,61 @@ function CheckSvg({ color = 'var(--status-positive)' }: { color?: string }) {
     <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={color}
          strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20,6 9,17 4,12" />
+    </svg>
+  );
+}
+
+// ── Иконки для hero и popular-badge ──────────────────────────────
+// Сердце пробитое стрелой — Купидон. Стрела выполнена полупрозрачным
+// белым, чтобы выделяться на градиенте позади, но не спорить с сердцем.
+function CupidHeartSvg() {
+  return (
+    <svg
+      width={34}
+      height={34}
+      viewBox="0 0 36 36"
+      fill="none"
+      style={{ filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.18))' }}
+    >
+      {/* Стрела (под сердцем — феathers сверху-слева, наконечник снизу-справа) */}
+      <g opacity="0.7">
+        {/* Оперение */}
+        <path d="M2,4 L7.5,1 L7,8 Z" fill="#ffffff" />
+        <path d="M3,7 L1,3.5 L6,4 Z" fill="#ffffff" />
+        <line x1="5.5" y1="5.5" x2="10" y2="10" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" />
+        {/* Наконечник */}
+        <line x1="26" y1="26" x2="31" y2="31" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" />
+        <path d="M34.5,34.5 L27.5,28.5 L29,35 Z" fill="#ffffff" />
+      </g>
+
+      {/* Сердце (поверх стрелы) */}
+      <path
+        d="
+          M18,31
+          C7,23 2.5,17 2.5,11.5
+          C2.5,7 5.8,3.8 9.8,3.8
+          C13.2,3.8 16.2,5.8 18,9
+          C19.8,5.8 22.8,3.8 26.2,3.8
+          C30.2,3.8 33.5,7 33.5,11.5
+          C33.5,17 29,23 18,31
+          Z
+        "
+        fill="#ffffff"
+      />
+      {/* Лёгкий блик на левой доле сердца */}
+      <ellipse cx="10.5" cy="9" rx="2.2" ry="3" fill="rgba(255,255,255,0.55)" transform="rotate(-25 10.5 9)" />
+    </svg>
+  );
+}
+
+function StarSvg({ size = 11 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="#ffffff" style={{ flexShrink: 0 }}>
+      <path
+        d="M12 2 L14.7 8.6 L21.8 9.2 L16.4 13.9 L18 20.9 L12 17.1 L6 20.9 L7.6 13.9 L2.2 9.2 L9.3 8.6 Z"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -735,6 +793,9 @@ const styles: Record<string, CSSProperties> = {
     background: 'var(--gradient-accent)',
     borderRadius: 8,
     boxShadow: 'var(--glow-accent)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    lineHeight: 1,
   },
 
   planHead: {
