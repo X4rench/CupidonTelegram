@@ -91,21 +91,12 @@ export function TargetIcon({ accent, accent2, size = DEFAULT_SIZE, style }: Icon
         <rect x="-44" y="-1.6" width="2.5" height="3.2" fill={accent2} opacity="0.6" rx="0.5" />
       </g>
 
-      {/* Искры от попадания */}
-      <g transform="translate(55 55)">
-        <g opacity="0.9">
-          <animate attributeName="opacity" values="0.4;1;0.4" dur="1.8s" repeatCount="indefinite" />
-          <path d="M0,-18 L1.2,-13 L0,-12 L-1.2,-13 Z" fill="#ffffff" />
-        </g>
-        <g opacity="0.7">
-          <animate attributeName="opacity" values="0.3;0.95;0.3" dur="2.1s" begin="0.4s" repeatCount="indefinite" />
-          <path d="M16,2 L11,1 L10,2 L11,3 Z" fill="#ffffff" />
-        </g>
-        <g opacity="0.7">
-          <animate attributeName="opacity" values="0.3;0.85;0.3" dur="2.4s" begin="0.9s" repeatCount="indefinite" />
-          <path d="M-15,-3 L-10,-2 L-9,-3 L-10,-4 Z" fill="#ffffff" />
-        </g>
-      </g>
+      {/* Расходящийся ring-ripple от попадания — без мусорных искр */}
+      <circle cx="55" cy="55" r="11" fill="none" stroke="#ffffff" strokeWidth="2" opacity="0">
+        <animate attributeName="r" values="11;26" dur="2.6s" repeatCount="indefinite" />
+        <animate attributeName="opacity" values="0.55;0" dur="2.6s" repeatCount="indefinite" />
+        <animate attributeName="stroke-width" values="2.2;0.4" dur="2.6s" repeatCount="indefinite" />
+      </circle>
     </svg>
   );
 }

@@ -533,36 +533,53 @@ function CheckSvg({ color = 'var(--status-positive)' }: { color?: string }) {
 }
 
 // ── Иконки для hero и popular-badge ──────────────────────────────
-// Сердце пробитое стрелой — Купидон. Сердце пульсирует (heartbeat),
-// вокруг летают три искры с разными фазами мерцания. Стрела выполнена
-// полупрозрачным белым с детализированным оперением.
+// Купидон: сердце пробитое стрелой. Стрела чётко видна с обеих сторон —
+// филигранное оперение (треугольный shape с прожилками) сверху-слева,
+// классический наконечник снизу-справа. Шаф скрыт сердцем посередине.
+// Сердце пульсирует (heartbeat), вокруг летают три искры.
 function CupidHeartSvg() {
   return (
     <svg
-      width={38}
-      height={38}
-      viewBox="0 0 40 40"
+      width={40}
+      height={40}
+      viewBox="0 0 44 44"
       fill="none"
       style={{ filter: 'drop-shadow(0 3px 8px rgba(0,0,0,0.22))' }}
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* Стрела под сердцем */}
-      <g opacity="0.78">
-        {/* Оперение (3 пера) */}
-        <path d="M1,4 L7,0.5 L6.5,7.5 Z" fill="#ffffff" />
-        <path d="M2,7 L0,3.5 L6,3 Z" fill="#ffffff" opacity="0.85" />
-        <path d="M1.5,5.5 L5,5 L4,8 Z" fill="#ffffff" opacity="0.7" />
-        {/* Древко слева */}
-        <line x1="5" y1="5" x2="10" y2="10" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" />
-        {/* Древко справа */}
-        <line x1="30" y1="30" x2="35" y2="35" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" />
-        {/* Наконечник */}
-        <path d="M38.5,38.5 L31.5,32 L33,39 Z" fill="#ffffff" />
-        <path d="M38.5,38.5 L31.5,32 L34.5,33.5 Z" fill="#ffffff" opacity="0.7" />
+      {/* СТРЕЛА (под сердцем) — направление: 45° сверху-слева → снизу-справа */}
+
+      {/* Оперение (fletching) в верхнем-левом углу */}
+      <g>
+        {/* Главная плоскость пера — заливной треугольник */}
+        <path
+          d="M2,2 L10,4 L8,11 L4,9 Z"
+          fill="#ffffff"
+        />
+        {/* Прожилки на пере для текстуры */}
+        <line x1="4" y1="3" x2="7.5" y2="8" stroke="rgba(0,0,0,0.12)" strokeWidth="0.6" strokeLinecap="round" />
+        <line x1="3" y1="5" x2="6" y2="9" stroke="rgba(0,0,0,0.10)" strokeWidth="0.6" strokeLinecap="round" />
+        <line x1="6" y1="3" x2="8.5" y2="7" stroke="rgba(0,0,0,0.10)" strokeWidth="0.6" strokeLinecap="round" />
+        {/* Скос между двумя половинами пера */}
+        <line x1="2" y1="2" x2="9" y2="9" stroke="rgba(0,0,0,0.10)" strokeWidth="0.5" strokeLinecap="round" />
+      </g>
+      {/* Древко — слева (от пера в сердце) */}
+      <line x1="7" y1="7" x2="13" y2="13" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" />
+
+      {/* Древко — справа (из сердца к наконечнику) */}
+      <line x1="31" y1="31" x2="37" y2="37" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" />
+      {/* Наконечник — классический заострённый треугольник */}
+      <g>
+        <path
+          d="M42,42 L33,38 L34,35 L38,34 L42,42 Z"
+          fill="#ffffff"
+        />
+        {/* Линия по центру наконечника — рёбро */}
+        <line x1="42" y1="42" x2="35.5" y2="36.5" stroke="rgba(0,0,0,0.14)" strokeWidth="0.6" strokeLinecap="round" />
       </g>
 
-      {/* Сердце — heartbeat pulse */}
-      <g transform="translate(20 19.5)">
+      {/* СЕРДЦЕ — heartbeat pulse */}
+      <g transform="translate(22 21.5)">
         <g>
           <animateTransform
             attributeName="transform"
@@ -572,44 +589,41 @@ function CupidHeartSvg() {
             dur="1.6s"
             repeatCount="indefinite"
           />
-          {/* Тень */}
+          {/* Тень под сердцем */}
           <path
             d="M0,12.5 C-12,4.5 -17,-1.5 -17,-7 C-17,-12 -13,-15 -9,-15 C-5,-15 -2,-13.5 0,-10.5 C2,-13.5 5,-15 9,-15 C13,-15 17,-12 17,-7 C17,-1.5 12,4.5 0,12.5 Z"
-            fill="rgba(0,0,0,0.16)"
-            transform="translate(0 1.2)"
+            fill="rgba(0,0,0,0.18)"
+            transform="translate(0 1.3)"
           />
           {/* Само сердце */}
           <path
             d="M0,12.5 C-12,4.5 -17,-1.5 -17,-7 C-17,-12 -13,-15 -9,-15 C-5,-15 -2,-13.5 0,-10.5 C2,-13.5 5,-15 9,-15 C13,-15 17,-12 17,-7 C17,-1.5 12,4.5 0,12.5 Z"
             fill="#ffffff"
           />
-          {/* Блик на левой доле */}
-          <ellipse cx="-9" cy="-10" rx="2.6" ry="3.4" fill="rgba(255,255,255,0.6)" transform="rotate(-25 -9 -10)" />
+          {/* Главный блик на левой доле */}
+          <ellipse cx="-9" cy="-10" rx="2.8" ry="3.6" fill="rgba(255,255,255,0.62)" transform="rotate(-25 -9 -10)" />
           {/* Маленький блик-точка */}
-          <circle cx="-4.5" cy="-7" r="1" fill="rgba(255,255,255,0.7)" />
+          <circle cx="-4.5" cy="-7" r="1.1" fill="rgba(255,255,255,0.72)" />
         </g>
       </g>
 
       {/* Плавающие искры вокруг сердца */}
-      <g opacity="0.85">
-        {/* искра справа сверху */}
-        <g transform="translate(33 8)">
+      <g opacity="0.9">
+        <g transform="translate(36 9)">
           <g>
             <animate attributeName="opacity" values="0.3;1;0.3" dur="2.2s" repeatCount="indefinite" />
-            <animateTransform attributeName="transform" type="scale" values="0.7;1.2;0.7" dur="2.2s" repeatCount="indefinite" />
+            <animateTransform attributeName="transform" type="scale" values="0.7;1.25;0.7" dur="2.2s" repeatCount="indefinite" />
             <path d="M0,-3 C0.3,-1 1,-0.3 3,0 C1,0.3 0.3,1 0,3 C-0.3,1 -1,0.3 -3,0 C-1,-0.3 -0.3,-1 0,-3 Z" fill="#ffffff" />
           </g>
         </g>
-        {/* искра внизу слева */}
-        <g transform="translate(5 30)">
+        <g transform="translate(6 32)">
           <g>
             <animate attributeName="opacity" values="0.3;0.95;0.3" dur="2.6s" begin="0.6s" repeatCount="indefinite" />
-            <animateTransform attributeName="transform" type="scale" values="0.6;1.1;0.6" dur="2.6s" begin="0.6s" repeatCount="indefinite" />
+            <animateTransform attributeName="transform" type="scale" values="0.6;1.15;0.6" dur="2.6s" begin="0.6s" repeatCount="indefinite" />
             <path d="M0,-2.5 C0.25,-0.8 0.8,-0.25 2.5,0 C0.8,0.25 0.25,0.8 0,2.5 C-0.25,0.8 -0.8,0.25 -2.5,0 C-0.8,-0.25 -0.25,-0.8 0,-2.5 Z" fill="#ffffff" />
           </g>
         </g>
-        {/* искра справа внизу */}
-        <g transform="translate(34 24)">
+        <g transform="translate(38 26)">
           <g>
             <animate attributeName="opacity" values="0.2;0.85;0.2" dur="2.4s" begin="1.2s" repeatCount="indefinite" />
             <animateTransform attributeName="transform" type="scale" values="0.6;1;0.6" dur="2.4s" begin="1.2s" repeatCount="indefinite" />
