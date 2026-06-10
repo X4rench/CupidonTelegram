@@ -161,17 +161,23 @@ export function FirstMessageScreen() {
   );
 
   // Качество описания — аналог password strength.
-  // Веса: имя (10), теги (до 40, по 8 за тег, cap 5 тегов), профиль (до 50).
-  // Профиль scales: 0-30 chars → линейно 0-15, 30-100 → 15-40, 100+ → 40-50.
+  // Веса: имя (5) + теги (до 15, по 3 за тег) + профиль (до 90 — основной сигнал).
+  // Профиль с убывающим возвратом, чтобы 1500-символьный текст не упирался в потолок:
+  //   0-50:    0→25 (старт)
+  //   50-150:  25→55 (содержательный абзац)
+  //   150-400: 55→80 (подробное описание)
+  //   400-800: 80→90 (детальный портрет)
+  //   800+:    90 (asymptote — нет смысла расти выше)
   const qualityScore = useMemo(() => {
     let s = 0;
-    if (girlName.trim().length > 0) s += 10;
-    s += Math.min(40, tags.length * 8);
+    if (girlName.trim().length > 0) s += 5;
+    s += Math.min(15, tags.length * 3);
     const pLen = profile.trim().length;
     if (pLen > 0) {
-      if (pLen < 30) s += (pLen / 30) * 15;
-      else if (pLen < 100) s += 15 + ((pLen - 30) / 70) * 25;
-      else s += 40 + Math.min(10, (pLen - 100) / 20);
+      if (pLen <= 50)        s += (pLen / 50) * 25;
+      else if (pLen <= 150)  s += 25 + ((pLen - 50) / 100) * 30;
+      else if (pLen <= 400)  s += 55 + ((pLen - 150) / 250) * 25;
+      else                   s += 80 + Math.min(10, (pLen - 400) / 40);
     }
     return Math.max(0, Math.min(100, Math.round(s)));
   }, [girlName, tags, profile]);
