@@ -33,39 +33,53 @@ import { TYPAZHES, MAX_TYPAZHES, csvToList, listToCsv } from '../utils/typazhes'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function categoryIdx(r: { badge?: string; why?: string }): number {
+// Тон ответа → индекс категории (5 тонов: дружелюбный/игривый/флирт/
+// уверенный/универсальный). Бэкенд кладёт тон в badge.
+function categoryIdx(r: { badge?: string }): number {
   const b = String(r?.badge || '').trim().toLowerCase();
-  if (b.startsWith('лёгк') || b.startsWith('легк')) return 0;
-  if (b.startsWith('уверен')) return 1;
-  if (b.startsWith('дерз')) return 2;
-  const w = String(r?.why || '').trim().toLowerCase();
-  if (!w) return -1;
-  if (w.startsWith('лёгк') || w.startsWith('легк') || w.startsWith('тёпл') || w.startsWith('тепл')) return 0;
-  if (w.startsWith('уверен')) return 1;
-  if (w.startsWith('дерз')) return 2;
+  if (b.startsWith('дружел')) return 0;
+  if (b.startsWith('игрив'))  return 1;
+  if (b.startsWith('флирт'))  return 2;
+  if (b.startsWith('увер'))   return 3;
+  if (b.startsWith('универ') || b.startsWith('комбин')) return 4;
   return -1;
 }
 
-// Перекладываем 9 ответов из [L,L,L,Y,Y,Y,D,D,D] в [L,Y,D, L,Y,D, L,Y,D].
-// На каждой странице (3 шт) будет представлена каждая категория.
-function interleaveResponses<T extends { badge?: string; why?: string }>(responses: T[]): T[] {
+// Round-robin по тонам → на каждой странице (3 шт) разные тоны, а не
+// два одинаковых подряд. Состав всегда 2/2/2/2/1 = 9.
+function interleaveResponses<T extends { badge?: string }>(responses: T[]): T[] {
   if (!Array.isArray(responses) || responses.length === 0) return [];
-  const buckets: T[][] = [[], [], []];
+  const buckets: T[][] = [[], [], [], [], []];
   const others: T[] = [];
   for (const r of responses) {
     const c = categoryIdx(r);
     if (c >= 0) buckets[c].push(r);
     else others.push(r);
   }
-  if (buckets[0].length + buckets[1].length + buckets[2].length === 0) {
-    return responses;
-  }
+  if (buckets.every(b => b.length === 0)) return responses;
   const out: T[] = [];
-  const maxLen = Math.max(buckets[0].length, buckets[1].length, buckets[2].length);
+  const maxLen = Math.max(...buckets.map(b => b.length));
   for (let i = 0; i < maxLen; i++) {
-    for (let c = 0; c < 3; c++) if (buckets[c][i]) out.push(buckets[c][i]);
+    for (let c = 0; c < buckets.length; c++) if (buckets[c][i]) out.push(buckets[c][i]);
   }
   return out.concat(others);
+}
+
+// Подпись тона под ответом: ярлык + короткое описание + цвет.
+const TONE_META: Record<string, { label: string; desc: string; color: string }> = {
+  дружелюбный:   { label: 'Дружелюбный',  desc: 'тёплое общение, без флирта',        color: '#22C55E' },
+  игривый:       { label: 'Игривый',      desc: 'лёгкий тиз и ирония',               color: '#F59E0B' },
+  флирт:         { label: 'Флирт',        desc: 'явный интерес и намёк',             color: '#F43F5E' },
+  уверенный:     { label: 'Уверенный',    desc: 'инициатива, лидерская рамка',       color: '#6366F1' },
+  универсальный: { label: 'Универсальный',desc: 'заходит почти всегда',              color: '#A1A1AA' },
+};
+function toneMeta(badge?: string) {
+  const b = String(badge || '').trim().toLowerCase();
+  if (b.startsWith('дружел')) return TONE_META.дружелюбный;
+  if (b.startsWith('игрив'))  return TONE_META.игривый;
+  if (b.startsWith('флирт'))  return TONE_META.флирт;
+  if (b.startsWith('увер'))   return TONE_META.уверенный;
+  return TONE_META.универсальный;
 }
 
 function barColor(val: number): string {
@@ -123,17 +137,9 @@ function AIThinkingBanner({ visible }: { visible: boolean }) {
 }
 
 // ── Tone — стиль ответов AI ─────────────────────────────────────────────────
-// 'auto' — AI решает по контексту (поведение по умолчанию, как было раньше).
-// Остальные смещают все 9 вариантов в одну сторону.
-const TONE_OPTIONS = [
-  { key: 'auto',      label: 'Авто',         sub: 'AI решит сам' },
-  { key: 'friendly',  label: 'Дружелюбно',   sub: 'без флирта' },
-  { key: 'playful',   label: 'Игриво',       sub: 'лёгкий тиз' },
-  { key: 'flirty',    label: 'Флирт',        sub: 'явный интерес' },
-  { key: 'confident', label: 'Уверенно',     sub: 'веду диалог' },
-] as const;
-
-type ToneKey = typeof TONE_OPTIONS[number]['key'];
+// Тон ответов больше НЕ выбирается: AI всегда выдаёт фиксированный набор
+// (2 дружелюбных, 2 игривых, 2 флирт, 2 уверенных, 1 универсальный),
+// тон каждого подписан под ответом (см. TONE_META).
 
 // ── Per-girl analysis state ─────────────────────────────────────────────────
 
@@ -146,12 +152,9 @@ interface GirlAnalysis {
   lastAnalyzedText?: string;
   lastAnalyzedContext?: boolean;
   lastAnalyzedHint?: string | null;
-  lastAnalyzedTone?: ToneKey;
   lastAnalyzedAt?: string;
   lastMsgCount?: number;
   lastMood?: string | null;
-  // Сохраняем выбор тона между визитами на экран.
-  tone?: ToneKey;
 }
 
 const emptyAnalysis = (): GirlAnalysis => ({
@@ -159,7 +162,6 @@ const emptyAnalysis = (): GirlAnalysis => ({
   showResult: false,
   responsePage: 0,
   regenCount: 0,
-  tone: 'auto',
 });
 
 const REGEN_LIMIT = 2;
@@ -254,13 +256,12 @@ export function WingScreen() {
     selectionHaptic();
   };
 
-  // Disable analyze button if same text/context/hint/tone were analyzed already
+  // Disable analyze button if same text/context/hint were analyzed already
   const sortedCsv = (s: string | null | undefined) =>
     !s ? '' : s.split(',').map(x => x.trim()).filter(Boolean).sort().join(',');
   const curHintCsv = curHint.length ? curHint.slice().sort().join(',') : '';
   const lastHintCsv = sortedCsv(cur.lastAnalyzedHint);
   const text = cur.text;
-  const curTone: ToneKey = cur.tone || 'auto';
   const analyzeDisabled =
     !text.trim() ||
     loading ||
@@ -268,8 +269,7 @@ export function WingScreen() {
       cur.showResult &&
       text.trim() === cur.lastAnalyzedText &&
       contextEnabled === !!cur.lastAnalyzedContext &&
-      curHintCsv === lastHintCsv &&
-      curTone === (cur.lastAnalyzedTone || 'auto')
+      curHintCsv === lastHintCsv
     );
 
   const hasPrevCtx = !!cur.lastAnalyzedText;
@@ -282,7 +282,6 @@ export function WingScreen() {
     const analyzingContactId = activeContactId === NO_CONTACT_ID ? null : activeContactId;
     const hintList = analysisTypazhes[activeContactId] || [];
     const hintCsv = listToCsv(hintList);
-    const analyzedTone = curTone;
 
     setLoading(true);
     setApiError(null);
@@ -293,9 +292,6 @@ export function WingScreen() {
         contactId: analyzingContactId,
         typazhHint: hintCsv,
         user_profile: me?.user_profile ?? null,
-        // Передаём только если не 'auto' — экономия трафика
-        // и нулевой риск изменить старое поведение.
-        tone: analyzedTone === 'auto' ? null : analyzedTone,
       });
       const now = new Date();
       const pad = (n: number) => n.toString().padStart(2, '0');
@@ -312,7 +308,6 @@ export function WingScreen() {
         lastMsgCount: msgCount,
         lastMood: res.result.mood,
         lastAnalyzedHint: hintCsv ?? undefined,
-        lastAnalyzedTone: analyzedTone,
       });
       notificationHaptic('success');
       getAnalysisHistory().then(r => { if (r.ok) setHistory(r.sessions || []); }).catch(() => {});
@@ -542,31 +537,11 @@ export function WingScreen() {
             )}
             <div style={styles.divider} />
 
-            {/* Tone selector — стиль ответов AI */}
-            <div style={styles.toneRow}>
-              <span style={styles.toneLabel}>Стиль ответов:</span>
-              <div style={styles.toneChipsRow}>
-                {TONE_OPTIONS.map(t => {
-                  const active = curTone === t.key;
-                  return (
-                    <button
-                      key={t.key}
-                      onClick={() => { selectionHaptic(); updateCur({ tone: t.key }); }}
-                      style={{
-                        ...styles.toneChip,
-                        background: active ? 'var(--accent-primary)' : 'var(--bg-elevated)',
-                        color: active ? '#fff' : 'var(--text-secondary)',
-                        borderColor: active ? 'var(--accent-primary)' : 'var(--border-subtle)',
-                      }}
-                    >
-                      <span style={{ fontSize: 12, fontWeight: 600 }}>{t.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <span style={styles.toneSub}>
-                {TONE_OPTIONS.find(t => t.key === curTone)?.sub || ''}
-              </span>
+            {/* Тон не выбирается: AI всегда даёт набор тонов, подписанный
+                под каждым ответом (2 дружелюбных, 2 игривых, 2 флирт,
+                2 уверенных, 1 универсальный). */}
+            <div style={styles.toneHint}>
+              ответы придут в разных тонах — дружелюбный · игривый · флирт · уверенный. тон подписан под каждым
             </div>
 
             <div style={styles.divider} />
@@ -757,23 +732,31 @@ export function WingScreen() {
                     ))}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {displayed.map((r, i) => (
-                      <div key={i} style={styles.responseItem}>
-                        <button
-                          onClick={() => copyText(r.text)}
-                          style={styles.copyBtn}
-                          aria-label="Скопировать"
-                        >
-                          <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
-                            stroke="var(--text-muted)" strokeWidth={2}>
-                            <rect x={9} y={9} width={13} height={13} rx={2} />
-                            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                          </svg>
-                        </button>
-                        <p style={styles.responseText}>{r.text}</p>
-                        {r.why && <p style={styles.responseWhy}>{r.why}</p>}
-                      </div>
-                    ))}
+                    {displayed.map((r, i) => {
+                      const tm = toneMeta(r.badge);
+                      return (
+                        <div key={i} style={styles.responseItem}>
+                          <button
+                            onClick={() => copyText(r.text)}
+                            style={styles.copyBtn}
+                            aria-label="Скопировать"
+                          >
+                            <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
+                              stroke="var(--text-muted)" strokeWidth={2}>
+                              <rect x={9} y={9} width={13} height={13} rx={2} />
+                              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                            </svg>
+                          </button>
+                          <span style={{ ...styles.toneBadge, color: tm.color, borderColor: tm.color }}>
+                            {tm.label}
+                          </span>
+                          <p style={styles.responseText}>{r.text}</p>
+                          <p style={styles.responseWhy}>
+                            {tm.desc}{r.why ? ` · ${r.why}` : ''}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -984,19 +967,18 @@ const styles: Record<string, CSSProperties> = {
 
   section: { padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 12 },
 
-  // ── Tone selector ────────────────────────────────────────────────────────
-  toneRow: { display: 'flex', flexDirection: 'column', gap: 6 },
-  toneLabel: { fontSize: 13, color: 'var(--text-muted)' },
-  toneChipsRow: { display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 2 },
-  toneChip: {
-    flexShrink: 0,
-    padding: '6px 12px',
-    borderRadius: 14,
-    border: '1px solid var(--border-subtle)',
-    cursor: 'pointer',
-    transition: 'background 160ms, color 160ms, border-color 160ms',
+  // ── Подсказка про тоны + ярлык тона на ответе ────────────────────────────
+  toneHint: { fontSize: 12, color: 'var(--text-muted)', lineHeight: '17px' },
+  toneBadge: {
+    display: 'inline-block',
+    fontSize: 11, fontWeight: 700,
+    textTransform: 'uppercase', letterSpacing: 0.4,
+    padding: '2px 8px',
+    borderRadius: 7,
+    border: '1px solid',
+    background: 'transparent',
+    marginBottom: 6,
   },
-  toneSub: { fontSize: 11, color: 'var(--text-muted)', marginTop: 2 },
 
   hintHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   hintLabel: { fontSize: 13, color: 'var(--text-muted)' },

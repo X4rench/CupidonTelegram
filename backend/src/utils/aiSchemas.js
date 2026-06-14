@@ -37,6 +37,8 @@ const safeArr = (v, maxLen, mapFn) => {
 };
 
 // ─── /wing ───────────────────────────────────────────────────────────────────
+const WING_BADGE_ENUM = new Set(['дружелюбный', 'игривый', 'флирт', 'уверенный', 'универсальный']);
+
 export function validateWingResult(raw) {
   if (!isObj(raw)) {
     return { score: 5, mood: 'warning', summary: 'Не удалось проанализировать.', responses: [] };
@@ -60,9 +62,10 @@ export function validateWingResult(raw) {
     } : null).filter(s => s.text),
     strategy: safeStr(raw.strategy, 2000),
     responses: safeArr(raw.responses, 9, r => isObj(r) ? {
-      text: safeStr(r.text, 1000),
-      why:  safeStr(r.why, 500),
-    } : (typeof r === 'string' ? { text: safeStr(r, 1000), why: '' } : null)).filter(r => r.text),
+      text:  safeStr(r.text, 1000),
+      why:   safeStr(r.why, 500),
+      badge: enumOr(r.badge, WING_BADGE_ENUM, 'универсальный'),
+    } : (typeof r === 'string' ? { text: safeStr(r, 1000), why: '', badge: 'универсальный' } : null)).filter(r => r.text),
     media_hint: isObj(raw.media_hint) && raw.media_hint.type ? {
       type:         enumOr(raw.media_hint.type, MEDIA_TYPE_ENUM, 'voice'),
       reason:       safeStr(raw.media_hint.reason, 500),
