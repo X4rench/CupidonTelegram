@@ -336,6 +336,11 @@ export async function generateSupport(payload: {
   situationText: string;
   tags?: string[];
   withContext?: boolean;
+  /** Опциональные подсказки-калибровки (чипы на экране). */
+  need?: string;       // что ей нужнее: выговориться / совет / отвлечься / просто тепло
+  about?: string;      // ситуация про: неё саму / близкого / нас двоих / работу-учёбу
+  since?: string;      // давность: только что / сегодня / тянется давно
+  closeness?: string;  // кто она тебе: только познакомились / общаемся / пара
 }): Promise<{ ok: boolean; responses: { level?: string; text: string }[] }> {
   return fetchAuthed('/analysis/support', {
     method: 'POST',
@@ -343,6 +348,10 @@ export async function generateSupport(payload: {
       situation_text: payload.situationText,
       tags: payload.tags ?? [],
       with_context: payload.withContext ?? false,
+      need: payload.need || null,
+      about: payload.about || null,
+      since: payload.since || null,
+      closeness: payload.closeness || null,
     }),
   });
 }

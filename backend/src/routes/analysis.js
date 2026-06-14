@@ -374,12 +374,27 @@ router.post('/rejection', async (req, res) => {
 
 // ── POST /api/v1/analysis/support ────────────────────────────────────────────
 router.post('/support', async (req, res) => {
-  const { situation_text, tags = [], with_context = false } = req.body;
+  const { situation_text, tags = [], with_context = false, need, about, since, closeness } = req.body;
   if (!situation_text?.trim()) return res.status(400).json({ ok: false, error: 'situation_text обязателен' });
   if (situation_text.length > MAX_SUPPORT_LEN)
     return res.status(400).json({ ok: false, error: `Текст не может быть длиннее ${MAX_SUPPORT_LEN} символов` });
   if (!Array.isArray(tags) || tags.length > 20)
     return res.status(400).json({ ok: false, error: 'tags: массив до 20 элементов' });
+
+  // Опциональные подсказки-чипы с экрана — калибруют тон/режим поддержки.
+  // Каждое поле короткое (значение из фикс-набора), но юзер мог прислать что
+  // угодно — режем до 60 символов и санитизируем.
+  const hintField = (v) => (typeof v === 'string' && v.trim()) ? sanitizeForPrompt(v.trim(), 60) : '';
+  const needN  = hintField(need);
+  const aboutN = hintField(about);
+  const sinceN = hintField(since);
+  const closeN = hintField(closeness);
+  const hintLines = [];
+  if (needN)  hintLines.push(`Что ей сейчас нужнее: ${needN}`);
+  if (aboutN) hintLines.push(`Ситуация про: ${aboutN}`);
+  if (sinceN) hintLines.push(`Давность: ${sinceN}`);
+  if (closeN) hintLines.push(`Кто она пользователю: ${closeN}`);
+  const userHints = hintLines.length ? hintLines.join('\n') : 'не указаны';
 
   const user = ensureUser(req);
   if (!checkAndIncrementLimit(user, res, 'support')) return;
@@ -390,7 +405,9 @@ router.post('/support', async (req, res) => {
   const t0 = Date.now();
   const cacheKey = makeKey('support', {
     tg_user_id: req.tgUser.id, sit: normText(situation_text),
-    tags: [...tags].sort().join(','), model: prompt.model,
+    tags: [...tags].sort().join(','),
+    hints: `${needN}|${aboutN}|${sinceN}|${closeN}`,
+    model: prompt.model,
   });
   const cached = await getCached(cacheKey);
   if (cached) {
@@ -402,8 +419,9 @@ router.post('/support', async (req, res) => {
       reasoning: 'off',
       systemPrompt: prompt.system_prompt,
       variables: {
-        situation: situation_text.trim(),
-        tags:      tags.length ? tags.slice(0, 20).join(', ') : 'не указаны',
+        situation:  situation_text.trim(),
+        tags:       tags.length ? tags.slice(0, 20).join(', ') : 'не указаны',
+        user_hints: userHints,
       },
       messages: [{ role: 'user', content: 'Сгенерируй РОВНО 9 вариантов поддержки. Ответь ТОЛЬКО чистым JSON без markdown и без пояснений.' }],
     });

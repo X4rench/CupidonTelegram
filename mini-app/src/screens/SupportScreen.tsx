@@ -49,12 +49,23 @@ const SUPPORT_TAGS = [
   'тревога', 'ссора с близкими', 'неуверенность', 'выгорание',
 ];
 
+// Опциональные калибровки (по одному тапу). Все single-select.
+const NEED_OPTIONS      = ['выговориться', 'совет', 'отвлечься', 'просто тепло'];
+const ABOUT_OPTIONS     = ['неё саму', 'близкого', 'нас двоих', 'работу/учёбу'];
+const SINCE_OPTIONS     = ['только что', 'сегодня', 'тянется давно'];
+const CLOSENESS_OPTIONS = ['только познакомились', 'общаемся', 'пара'];
+
 export function SupportScreen() {
   const nav = useNavigate();
   useBackButton(() => nav(-1));
 
   const [situation, setSituation] = useState('');
   const [tags, setTags] = useState<string[]>([]);
+  // Калибровки (single-select, опциональные)
+  const [need, setNeed] = useState('');
+  const [about, setAbout] = useState('');
+  const [since, setSince] = useState('');
+  const [closeness, setCloseness] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // ResultItem хранит text + level — точно как в Стреле text+why.
@@ -89,7 +100,10 @@ export function SupportScreen() {
     setRegenCount(0);
     setCopiedIdx(null);
     try {
-      const res = await generateSupport({ situationText: trimmed, tags, withContext: false });
+      const res = await generateSupport({
+        situationText: trimmed, tags, withContext: false,
+        need, about, since, closeness,
+      });
       const items: ResultItem[] = Array.isArray((res as any).responses)
         ? (res as any).responses.map((r: any) => {
             if (typeof r === 'string') return { text: r };
@@ -159,6 +173,29 @@ export function SupportScreen() {
   // Изначально =1 (одна страница), после каждого refresh +1, max = REGEN_LIMIT+1.
   const totalPages = regenCount + 1;
 
+  // Ряд single-select чипов (тап повторно — снимает выбор).
+  const choiceRow = (
+    label: string,
+    options: string[],
+    value: string,
+    setValue: (v: string) => void,
+  ) => (
+    <div>
+      <div style={styles.subLabel}>{label}</div>
+      <div style={styles.tagsRow}>
+        {options.map(o => (
+          <Chip
+            key={o}
+            active={value === o}
+            onClick={() => { selectionHaptic(); setValue(value === o ? '' : o); }}
+          >
+            {o}
+          </Chip>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <Layout>
       <div style={styles.container}>
@@ -186,6 +223,18 @@ export function SupportScreen() {
               {t}
             </Chip>
           ))}
+        </div>
+
+        {/* Калибровки — всё по желанию, по одному тапу. Чем точнее, тем
+            лучше ответ; можно пропустить всё и нажать «Сгенерировать». */}
+        <div style={styles.hintsWrap}>
+          <div style={styles.hintsHead}>Чуть точнее — по желанию</div>
+          <div style={styles.hintsList}>
+            {choiceRow('Что ей сейчас нужнее', NEED_OPTIONS, need, setNeed)}
+            {choiceRow('Ситуация про', ABOUT_OPTIONS, about, setAbout)}
+            {choiceRow('Как давно это', SINCE_OPTIONS, since, setSince)}
+            {choiceRow('Кто она тебе', CLOSENESS_OPTIONS, closeness, setCloseness)}
+          </div>
         </div>
 
         {/* Кнопка «Сгенерировать» прячется после успеха — далее
@@ -298,6 +347,21 @@ const styles: Record<string, CSSProperties> = {
   label:        { display: 'block', marginTop: 20, marginBottom: 8, fontSize: 13, color: 'var(--text-secondary)' },
   inputCard:    { padding: '8px 12px' },
   tagsRow:      { display: 'flex', flexWrap: 'wrap', gap: 8 },
+  // Блок опциональных калибровок — отделён и помечен как «по желанию»,
+  // чтобы не читался как обязательная анкета.
+  hintsWrap: {
+    marginTop: 20,
+    padding: '14px 14px 16px',
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 14,
+  },
+  hintsHead: {
+    fontSize: 12, fontWeight: 600, textTransform: 'uppercase',
+    letterSpacing: 0.5, color: 'var(--text-muted)', marginBottom: 12,
+  },
+  hintsList: { display: 'flex', flexDirection: 'column', gap: 12 },
+  subLabel:  { fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 },
   // Шапка результатов — точно как в WingScreen.styles.responsesHeader
   resultsHeader: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
