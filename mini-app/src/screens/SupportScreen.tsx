@@ -66,6 +66,9 @@ export function SupportScreen() {
   const [about, setAbout] = useState('');
   const [since, setSince] = useState('');
   const [closeness, setCloseness] = useState('');
+  // Общая модалка «своё» для всех блоков. customField = какой блок редактируем.
+  const [customField, setCustomField] = useState<null | 'tags' | 'need' | 'about' | 'since' | 'closeness'>(null);
+  const [customInput, setCustomInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // ResultItem хранит text + level — точно как в Стреле text+why.
@@ -83,6 +86,35 @@ export function SupportScreen() {
 
   const toggleTag = (t: string) => {
     setTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+  };
+
+  const openCustom = (field: NonNullable<typeof customField>) => {
+    selectionHaptic();
+    setCustomInput('');
+    setCustomField(field);
+  };
+
+  const submitCustom = () => {
+    const v = customInput.trim().slice(0, 40);
+    if (!v) { setCustomField(null); return; }
+    if (customField === 'tags') {
+      if (!tags.includes(v)) setTags(prev => [...prev, v]);
+    } else if (customField === 'need')      setNeed(v);
+    else if (customField === 'about')       setAbout(v);
+    else if (customField === 'since')       setSince(v);
+    else if (customField === 'closeness')   setCloseness(v);
+    notificationHaptic('success');
+    setCustomInput('');
+    setCustomField(null);
+  };
+
+  // Заголовок/подсказка модалки под конкретный блок
+  const CUSTOM_META: Record<NonNullable<typeof customField>, { title: string; sub: string }> = {
+    tags:      { title: 'Что она чувствует', sub: 'Своё одно слово. Например: «паника», «пустота», «обречённость».' },
+    need:      { title: 'Что ей сейчас нужнее', sub: 'Например: «чтоб я просто был на связи», «помочь делом».' },
+    about:     { title: 'Ситуация про', sub: 'Например: «здоровье», «деньги», «бывшего», «питомца».' },
+    since:     { title: 'Как давно это', sub: 'Например: «неделю», «пару часов», «уже месяц».' },
+    closeness: { title: 'Кто она тебе', sub: 'Например: «бывшая», «подруга», «коллега», «жена».' },
   };
 
   const handleSubmit = async () => {
@@ -173,12 +205,13 @@ export function SupportScreen() {
   // Изначально =1 (одна страница), после каждого refresh +1, max = REGEN_LIMIT+1.
   const totalPages = regenCount + 1;
 
-  // Ряд single-select чипов (тап повторно — снимает выбор).
+  // Ряд single-select чипов (тап повторно — снимает выбор) + «своё».
   const choiceRow = (
     label: string,
     options: string[],
     value: string,
     setValue: (v: string) => void,
+    fieldKey: NonNullable<typeof customField>,
   ) => (
     <div>
       <div style={styles.subLabel}>{label}</div>
@@ -192,6 +225,16 @@ export function SupportScreen() {
             {o}
           </Chip>
         ))}
+        {/* Своё значение (если не из списка) — активный чип, тап снимает */}
+        {value && !options.includes(value) && (
+          <Chip active onClick={() => { selectionHaptic(); setValue(''); }}>
+            {value}
+          </Chip>
+        )}
+        <button onClick={() => openCustom(fieldKey)} style={styles.addChip} aria-label="Своё">
+          <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
+          <span>своё</span>
+        </button>
       </div>
     </div>
   );
@@ -223,6 +266,16 @@ export function SupportScreen() {
               {t}
             </Chip>
           ))}
+          {/* Свои эмоции (не из списка) */}
+          {tags.filter(t => !SUPPORT_TAGS.includes(t)).map(t => (
+            <Chip key={`u-${t}`} active onClick={() => toggleTag(t)}>
+              {t}
+            </Chip>
+          ))}
+          <button onClick={() => openCustom('tags')} style={styles.addChip} aria-label="Своё">
+            <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
+            <span>своё</span>
+          </button>
         </div>
 
         {/* Калибровки — всё по желанию, по одному тапу. Чем точнее, тем
@@ -230,10 +283,10 @@ export function SupportScreen() {
         <div style={styles.hintsWrap}>
           <div style={styles.hintsHead}>Чуть точнее — по желанию</div>
           <div style={styles.hintsList}>
-            {choiceRow('Что ей сейчас нужнее', NEED_OPTIONS, need, setNeed)}
-            {choiceRow('Ситуация про', ABOUT_OPTIONS, about, setAbout)}
-            {choiceRow('Как давно это', SINCE_OPTIONS, since, setSince)}
-            {choiceRow('Кто она тебе', CLOSENESS_OPTIONS, closeness, setCloseness)}
+            {choiceRow('Что ей сейчас нужнее', NEED_OPTIONS, need, setNeed, 'need')}
+            {choiceRow('Ситуация про', ABOUT_OPTIONS, about, setAbout, 'about')}
+            {choiceRow('Как давно это', SINCE_OPTIONS, since, setSince, 'since')}
+            {choiceRow('Кто она тебе', CLOSENESS_OPTIONS, closeness, setCloseness, 'closeness')}
           </div>
         </div>
 
@@ -331,6 +384,36 @@ export function SupportScreen() {
           </div>
         )}
       </div>
+
+      {/* Общая модалка ввода своего варианта (для эмоций и калибровок) */}
+      {customField && (
+        <div style={styles.modalOverlay} onClick={() => setCustomField(null)}>
+          <div style={styles.modalSheet} onClick={e => e.stopPropagation()}>
+            <div style={styles.modalHandle} />
+            <div style={styles.modalTitle}>{CUSTOM_META[customField].title}</div>
+            <div style={styles.modalSub}>{CUSTOM_META[customField].sub}</div>
+            <input
+              autoFocus
+              value={customInput}
+              onChange={e => setCustomInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') submitCustom(); }}
+              placeholder="…"
+              maxLength={40}
+              style={styles.modalInput}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => { setCustomField(null); setCustomInput(''); }}
+                style={styles.modalCancel}
+              >Отмена</button>
+              <GradientButton onClick={submitCustom} disabled={!customInput.trim()} full>
+                Добавить
+              </GradientButton>
+            </div>
+          </div>
+        </div>
+      )}
+
       <LimitReachedSheet
         open={limitSheet != null}
         reason={limitSheet || 'limit'}
@@ -362,6 +445,51 @@ const styles: Record<string, CSSProperties> = {
   },
   hintsList: { display: 'flex', flexDirection: 'column', gap: 12 },
   subLabel:  { fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 },
+  addChip: {
+    display: 'inline-flex', alignItems: 'center', gap: 4,
+    padding: '6px 12px',
+    border: '1px dashed var(--border-accent)',
+    background: 'transparent',
+    color: 'var(--text-accent)',
+    borderRadius: 16,
+    fontSize: 13, fontWeight: 500,
+    cursor: 'pointer',
+  },
+
+  // Модалка ввода своего варианта
+  modalOverlay: {
+    position: 'fixed', inset: 0,
+    background: 'rgba(0,0,0,0.6)',
+    display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+    zIndex: 1000,
+  },
+  modalSheet: {
+    width: '100%', maxWidth: 520,
+    background: 'var(--bg-card)',
+    borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    padding: '14px 18px',
+    paddingBottom: 'calc(18px + var(--safe-bottom))',
+    display: 'flex', flexDirection: 'column', gap: 12,
+  },
+  modalHandle: {
+    width: 38, height: 4,
+    background: 'var(--border-default)',
+    borderRadius: 2, margin: '0 auto 4px',
+  },
+  modalTitle: { fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' },
+  modalSub:   { fontSize: 13, color: 'var(--text-secondary)', lineHeight: '18px' },
+  modalInput: {
+    width: '100%', padding: '12px 14px',
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-default)',
+    borderRadius: 10, color: 'var(--text-primary)', fontSize: 15,
+  },
+  modalCancel: {
+    flex: 1, padding: 12, borderRadius: 10,
+    border: '1px solid var(--border-default)',
+    background: 'transparent', color: 'var(--text-secondary)',
+    fontSize: 14, cursor: 'pointer',
+  },
   // Шапка результатов — точно как в WingScreen.styles.responsesHeader
   resultsHeader: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
