@@ -26,6 +26,10 @@ const SUGGESTED_TAGS = [
   'фотография', 'природа', 'мода',
 ];
 
+// Где познакомились — даёт промпту контекст: на сайте знакомств есть анкета,
+// в реале/соцсети профиля может не быть, заход строится иначе.
+const PLATFORMS = ['Сайт знакомств', 'Instagram', 'ВКонтакте', 'Telegram', 'В реале'];
+
 const PAGE_SIZE = 3;
 const REGEN_LIMIT = 2; // 3 страницы × 3 варианта = 9 на запрос всего
 
@@ -37,7 +41,11 @@ export function FirstMessageScreen() {
   const [tags, setTags] = useState<string[]>([]);
   const [customTagModalOpen, setCustomTagModalOpen] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
-  const [profile, setProfile] = useState('');
+  const [platform, setPlatform] = useState('');                          // где познакомились
+  const [photoDesc, setPhotoDesc] = useState('');                        // что видно на фото
+  const [hasFace, setHasFace] = useState<'' | 'yes' | 'hidden'>('');     // лицо на фото
+  const [multiPhoto, setMultiPhoto] = useState(false);                   // несколько разных фото
+  const [bioText, setBioText] = useState('');                            // текст из профиля/анкеты
   const [loading, setLoading] = useState(false);
   const [limitSheet, setLimitSheet] = useState<LimitReason | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,9 +81,10 @@ export function FirstMessageScreen() {
     // дружелюбное сообщение вместо технической ошибки.
     const hasName = girlName.trim().length > 0;
     const hasTags = tags.length > 0;
-    const hasProfile = profile.trim().length > 0;
-    if (!hasName && !hasTags && !hasProfile) {
-      setError('Расскажи о ней хоть что-то: выбери что её интересует, напиши имя или опиши её профиль. Иначе AI не из чего лепить сообщение.');
+    const hasPhoto = photoDesc.trim().length > 0;
+    const hasBio = bioText.trim().length > 0;
+    if (!hasName && !hasTags && !hasPhoto && !hasBio) {
+      setError('Расскажи о ней хоть что-то: выбери интересы, опиши что на фото или что написано в профиле. Иначе AI не из чего лепить сообщение.');
       notificationHaptic('error');
       return;
     }
@@ -88,10 +97,24 @@ export function FirstMessageScreen() {
     setRegenCount(0);
     setCopiedIdx(null);
     try {
+      // Собираем структурированный профиль из всех полей в один размеченный
+      // текст — бэк кладёт его в {{profile_text}}, а промпт сам цепляется за
+      // метки (фото / лицо / контраст / анкета / где познакомились).
+      // Пустые поля не добавляем — чтобы детектор «пустого профиля» в промпте
+      // продолжал работать (тогда AI берёт универсальные крючки).
+      const profileParts: string[] = [];
+      if (platform)          profileParts.push(`Где познакомились: ${platform}`);
+      if (photoDesc.trim())  profileParts.push(`Что видно на фото: ${photoDesc.trim()}`);
+      if (hasFace === 'yes')    profileParts.push('Её лицо на фото видно');
+      if (hasFace === 'hidden') profileParts.push('Лицо на фото скрыто / не видно (можно обыграть)');
+      if (multiPhoto)        profileParts.push('Несколько разных фото — есть контраст между кадрами');
+      if (bioText.trim())    profileParts.push(`Что написано в профиле / анкете: ${bioText.trim()}`);
+      const composedProfile = profileParts.join('\n');
+
       const res = await generateFirstMessage({
         girlName: girlName.trim() || undefined,
         tags,
-        profileText: profile.trim(),
+        profileText: composedProfile,
       });
       const msgs: string[] = Array.isArray((res as any).messages)
         ? (res as any).messages.map((m: any) => typeof m === 'string' ? m : (m?.text || ''))
@@ -160,27 +183,26 @@ export function FirstMessageScreen() {
     [results, responsePage],
   );
 
-  // Качество описания — аналог password strength.
-  // Веса: имя (5) + теги (до 15, по 3 за тег) + профиль (до 90 — основной сигнал).
-  // Профиль с убывающим возвратом, чтобы 1500-символьный текст не упирался в потолок:
-  //   0-50:    0→25 (старт)
-  //   50-150:  25→55 (содержательный абзац)
-  //   150-400: 55→80 (подробное описание)
-  //   400-800: 80→90 (детальный портрет)
-  //   800+:    90 (asymptote — нет смысла расти выше)
+  // Качество описания — аналог password strength. Считается из ВСЕХ полей:
+  // имя(5) + площадка(5) + теги(до 12) + лицо-указано(5) + неск.фото(3)
+  // + что на фото(до 35) + анкета(до 35). Два текстовых поля — основной сигнал.
+  // Текст растёт линейно до 180 символов, дальше потолок (нет смысла больше).
   const qualityScore = useMemo(() => {
+    const scoreText = (txt: string, max: number) => {
+      const len = txt.trim().length;
+      if (len <= 0) return 0;
+      return max * Math.min(1, len / 180);
+    };
     let s = 0;
     if (girlName.trim().length > 0) s += 5;
-    s += Math.min(15, tags.length * 3);
-    const pLen = profile.trim().length;
-    if (pLen > 0) {
-      if (pLen <= 50)        s += (pLen / 50) * 25;
-      else if (pLen <= 150)  s += 25 + ((pLen - 50) / 100) * 30;
-      else if (pLen <= 400)  s += 55 + ((pLen - 150) / 250) * 25;
-      else                   s += 80 + Math.min(10, (pLen - 400) / 40);
-    }
+    if (platform)                   s += 5;
+    s += Math.min(12, tags.length * 3);
+    if (hasFace !== '')             s += 5;
+    if (multiPhoto)                 s += 3;
+    s += scoreText(photoDesc, 35);
+    s += scoreText(bioText, 35);
     return Math.max(0, Math.min(100, Math.round(s)));
-  }, [girlName, tags, profile]);
+  }, [girlName, platform, tags, hasFace, multiPhoto, photoDesc, bioText]);
 
   const hasResults = results.length > 0;
   // totalPages раскрывается ПО МЕРЕ нажатий «Ещё» — точно как Wing.
@@ -204,6 +226,19 @@ export function FirstMessageScreen() {
           style={styles.input}
           maxLength={30}
         />
+
+        <label style={styles.label}>Где познакомились</label>
+        <div style={styles.tagsRow}>
+          {PLATFORMS.map(p => (
+            <Chip
+              key={p}
+              active={platform === p}
+              onClick={() => { selectionHaptic(); setPlatform(prev => prev === p ? '' : p); clearErrorOnChange(); }}
+            >
+              {p}
+            </Chip>
+          ))}
+        </div>
 
         <label style={styles.label}>Что её интересует</label>
         <div style={styles.tagsRow}>
@@ -229,14 +264,54 @@ export function FirstMessageScreen() {
           </button>
         </div>
 
-        <label style={styles.label}>Что у неё в профиле (опц.)</label>
+        <label style={styles.label}>Что видно на фото (опц.)</label>
         <Card style={{ padding: '8px 12px' }}>
           <AutoGrowTextarea
-            value={profile}
-            onChange={v => { setProfile(v); clearErrorOnChange(); }}
-            placeholder="Например: лет 25, учится на дизайнера, любит кофейни, котов и хайкинг…"
-            maxHeight={180}
-            style={{ minHeight: 80, padding: 0 }}
+            value={photoDesc}
+            onChange={v => { setPhotoDesc(v); clearErrorOnChange(); }}
+            placeholder="Места, обстановка, чем занята, стиль. Например: на балконе ночью в чёрно-белом фильтре; у зеркала со вспышкой; на природе с собакой…"
+            maxHeight={160}
+            style={{ minHeight: 64, padding: 0 }}
+          />
+        </Card>
+
+        <div style={styles.faceRow}>
+          <span style={styles.faceLabel}>Видно её лицо на фото?</span>
+          <div style={styles.segWrap}>
+            <button
+              onClick={() => { selectionHaptic(); setHasFace(prev => prev === 'yes' ? '' : 'yes'); }}
+              style={{ ...styles.segBtn, ...(hasFace === 'yes' ? styles.segActive : {}) }}
+            >Видно</button>
+            <button
+              onClick={() => { selectionHaptic(); setHasFace(prev => prev === 'hidden' ? '' : 'hidden'); }}
+              style={{ ...styles.segBtn, ...(hasFace === 'hidden' ? styles.segActive : {}) }}
+            >Скрыто</button>
+          </div>
+        </div>
+
+        <button
+          onClick={() => { selectionHaptic(); setMultiPhoto(v => !v); }}
+          style={styles.checkRow}
+        >
+          <span style={{ ...styles.checkBox, ...(multiPhoto ? styles.checkBoxOn : {}) }}>
+            {multiPhoto && (
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="#fff"
+                   strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20,6 9,17 4,12" />
+              </svg>
+            )}
+          </span>
+          <span style={styles.checkText}>Несколько разных фото (есть контраст между кадрами)</span>
+        </button>
+
+        <label style={styles.label}>Что написано в профиле / анкете (опц.)</label>
+        <Card style={{ padding: '8px 12px' }}>
+          <AutoGrowTextarea
+            value={bioText}
+            onChange={v => { setBioText(v); clearErrorOnChange(); }}
+            placeholder="Её текст: био, статус, что о себе пишет. Например: «в поиске вдохновения, кофе и горы», «не пишите если без чувства юмора»"
+            maxHeight={160}
+            style={{ minHeight: 64, padding: 0 }}
           />
         </Card>
 
@@ -478,6 +553,43 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 13, fontWeight: 500,
     cursor: 'pointer',
   },
+
+  // Переключатель «Видно / Скрыто» (лицо на фото)
+  faceRow: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    gap: 12, marginTop: 12,
+  },
+  faceLabel: { fontSize: 13, color: 'var(--text-secondary)' },
+  segWrap: {
+    display: 'inline-flex', gap: 4, padding: 4,
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 12,
+  },
+  segBtn: {
+    padding: '6px 14px', borderRadius: 9,
+    border: 0, background: 'transparent',
+    color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600,
+    cursor: 'pointer', transition: 'background 160ms, color 160ms',
+  },
+  segActive: { background: 'var(--accent-primary)', color: '#fff' },
+
+  // Чекбокс «несколько фото»
+  checkRow: {
+    display: 'flex', alignItems: 'center', gap: 10,
+    marginTop: 12, padding: 0,
+    background: 'transparent', border: 0, cursor: 'pointer',
+    textAlign: 'left', width: '100%',
+  },
+  checkBox: {
+    flexShrink: 0,
+    width: 20, height: 20, borderRadius: 6,
+    border: '1.5px solid var(--border-default)',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    transition: 'background 160ms, border-color 160ms',
+  },
+  checkBoxOn: { background: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' },
+  checkText: { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.4 },
 
   // Мягкая подсказка-ошибка (тёплый янтарь, не паника-красный)
   errorBox: {
