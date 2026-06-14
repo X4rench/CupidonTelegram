@@ -13,7 +13,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import App from './App';
-import { initTelegram, hasInitData } from './auth';
+import { initTelegram, hasInitData, getInitDataRaw } from './auth';
 import { Landing } from './screens/Landing';
 import { PrivacyScreen } from './screens/PrivacyScreen';
 import { TermsScreen } from './screens/TermsScreen';
@@ -56,9 +56,21 @@ stageBeacon('react_root_created');
   // ЧИСТЫЙ ДОМЕН (cupidonapp.ru) — вход в Mini App ТОЛЬКО для Telegram.
   // Не-Telegram трафик (краулеры Safe Browsing, случайные посетители) уводим
   // в бота, чтобы на новом домене НЕ светился платёжный лендинг — иначе он
-  // со временем попадёт под тот же фрод-флаг, что cupidonai.ru. Лендинг,
-  // оферта и Privacy остаются на cupidonai.ru (его не выключаем).
-  if (window.location.hostname.endsWith('cupidonapp.ru') && !hasInitData()) {
+  // со временем попадёт под тот же фрод-флаг, что cupidonai.ru.
+  //
+  // ВАЖНО: определяем Telegram НАДЁЖНО — по самому initData / platform / хэшу,
+  // а НЕ по hasInitData() (она требует распарсенного user.id, который на iOS
+  // иногда пустой при наличии initData → ложный редирект → петля «не
+  // открывается» прямо внутри Telegram). Любой из сигналов = это Telegram,
+  // редирект НЕ делаем.
+  const __tgwa = (window as any)?.Telegram?.WebApp;
+  const __inTelegram = !!(
+    (__tgwa && typeof __tgwa.initData === 'string' && __tgwa.initData.length > 0) ||
+    (__tgwa && __tgwa.platform && __tgwa.platform !== 'unknown') ||
+    (window.location.hash || '').includes('tgWebApp') ||
+    getInitDataRaw()
+  );
+  if (window.location.hostname.endsWith('cupidonapp.ru') && !__inTelegram) {
     stageBeacon('clean_host_bounce');
     window.location.replace('https://t.me/Cupidon_Ai_Bot/app');
     return;
