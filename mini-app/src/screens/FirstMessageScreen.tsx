@@ -42,6 +42,8 @@ export function FirstMessageScreen() {
   const [customTagModalOpen, setCustomTagModalOpen] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
   const [platform, setPlatform] = useState('');                          // где познакомились
+  const [platformModalOpen, setPlatformModalOpen] = useState(false);     // модалка «своё место»
+  const [newPlatformInput, setNewPlatformInput] = useState('');
   const [photoDesc, setPhotoDesc] = useState('');                        // что видно на фото
   const [hasFace, setHasFace] = useState<'' | 'yes' | 'hidden'>('');     // лицо на фото
   const [multiPhoto, setMultiPhoto] = useState(false);                   // несколько разных фото
@@ -71,6 +73,16 @@ export function FirstMessageScreen() {
     }
     setNewTagInput('');
     setCustomTagModalOpen(false);
+  };
+
+  const addCustomPlatform = () => {
+    const v = newPlatformInput.trim().slice(0, 40);
+    if (!v) { setPlatformModalOpen(false); return; }
+    setPlatform(v);
+    notificationHaptic('success');
+    setNewPlatformInput('');
+    setPlatformModalOpen(false);
+    clearErrorOnChange();
   };
 
   const handleSubmit = async () => {
@@ -238,6 +250,20 @@ export function FirstMessageScreen() {
               {p}
             </Chip>
           ))}
+          {/* Своё место (если выбрано и не из списка) — активный чип, тап снимает */}
+          {platform && !PLATFORMS.includes(platform) && (
+            <Chip active onClick={() => { selectionHaptic(); setPlatform(''); }}>
+              {platform}
+            </Chip>
+          )}
+          <button
+            onClick={() => { selectionHaptic(); setPlatformModalOpen(true); }}
+            style={styles.addChip}
+            aria-label="Своё место"
+          >
+            <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
+            <span>своё</span>
+          </button>
         </div>
 
         <label style={styles.label}>Что её интересует</label>
@@ -438,6 +464,37 @@ export function FirstMessageScreen() {
                 style={styles.modalCancel}
               >Отмена</button>
               <GradientButton onClick={addCustomTag} disabled={!newTagInput.trim()} full>
+                Добавить
+              </GradientButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Модалка ввода своего места знакомства */}
+      {platformModalOpen && (
+        <div style={styles.modalOverlay} onClick={() => setPlatformModalOpen(false)}>
+          <div style={styles.modalSheet} onClick={e => e.stopPropagation()}>
+            <div style={styles.modalHandle} />
+            <div style={styles.modalTitle}>Где познакомились</div>
+            <div style={styles.modalSub}>
+              Напиши своё место. Например: «Тиндер», «на работе», «в спортзале», «через друзей», «в баре».
+            </div>
+            <input
+              autoFocus
+              value={newPlatformInput}
+              onChange={e => setNewPlatformInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addCustomPlatform(); }}
+              placeholder="…"
+              maxLength={40}
+              style={styles.modalInput}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => { setPlatformModalOpen(false); setNewPlatformInput(''); }}
+                style={styles.modalCancel}
+              >Отмена</button>
+              <GradientButton onClick={addCustomPlatform} disabled={!newPlatformInput.trim()} full>
                 Добавить
               </GradientButton>
             </div>
