@@ -53,6 +53,17 @@ stageBeacon('react_root_created');
     stageBeacon('init_tg_failed', { err: String(err?.message || err).slice(0, 100) });
   }
 
+  // ЧИСТЫЙ ДОМЕН (cupidonapp.ru) — вход в Mini App ТОЛЬКО для Telegram.
+  // Не-Telegram трафик (краулеры Safe Browsing, случайные посетители) уводим
+  // в бота, чтобы на новом домене НЕ светился платёжный лендинг — иначе он
+  // со временем попадёт под тот же фрод-флаг, что cupidonai.ru. Лендинг,
+  // оферта и Privacy остаются на cupidonai.ru (его не выключаем).
+  if (window.location.hostname.endsWith('cupidonapp.ru') && !hasInitData()) {
+    stageBeacon('clean_host_bounce');
+    window.location.replace('https://t.me/Cupidon_Ai_Bot/app');
+    return;
+  }
+
   if (!hasInitData()) {
     // Публичный режим — Landing + legal-страницы. Доступны через прямые URL
     // без авторизации в TG: https://cupidonai.ru/privacy и /terms.
