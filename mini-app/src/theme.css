@@ -56,6 +56,11 @@
 
 * {
   box-sizing: border-box;
+  /* Убираем системную бирюзовую заливку нажатия Android WebView
+     (-webkit-tap-highlight-color наследуется → покрывает все кнопки/табы/
+     чипы/карточки). На iOS и ПК такой подсветки нет — так достигаем
+     одинакового поведения на всех платформах. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 html, body, #root {
