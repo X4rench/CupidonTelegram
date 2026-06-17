@@ -140,9 +140,27 @@ function buildToneHint(tone) {
   return { norm: key, text: TONE_HINTS[key] };
 }
 
+// ── Давность знакомства (слайдер на экране) → калибровка рапорта для ОТВЕТОВ ──
+// Влияет только на тон/смелость responses; анализ (score/mood/signals) не трогает.
+const ACQ_HINTS = {
+  min30: 'ДАВНОСТЬ ЗНАКОМСТВА: только списались (~30 минут). Рапорта почти нет — ответы проще и теплее, без фамильярности, без тяжёлого флирта, рано лезть в личное.',
+  h2:    'ДАВНОСТЬ ЗНАКОМСТВА: пара часов. Ещё прощупываете друг друга — лёгкое тепло, без перебора в близость.',
+  today: 'ДАВНОСТЬ ЗНАКОМСТВА: общаетесь сегодня, первый день. Можно живее и игривее, но глубокую близость не изображай.',
+  days:  'ДАВНОСТЬ ЗНАКОМСТВА: пара дней. Есть ниточка — тёплый подкол, лёгкий флирт, отсылки к тому, что уже обсуждали, уместны.',
+  week:  'ДАВНОСТЬ ЗНАКОМСТВА: около недели. Рапорт есть — свободнее, общие шутки и инсайды ок, флирт уместен.',
+  weeks: 'ДАВНОСТЬ ЗНАКОМСТВА: 2-3 недели. Уже близко — можно прямее, тёплый флирт, звать куда-то естественно.',
+  month: 'ДАВНОСТЬ ЗНАКОМСТВА: месяц и больше, почти свои. По-свойски, прямо, с заботой и уверенным флиртом; встречи предлагать без церемоний.',
+};
+function buildAcqBlock(acquaintance) {
+  if (typeof acquaintance !== 'string') return { norm: null, block: '' };
+  const key = acquaintance.trim().toLowerCase();
+  if (!ACQ_HINTS[key]) return { norm: null, block: '' };
+  return { norm: key, block: ACQ_HINTS[key] };
+}
+
 // ── POST /api/v1/analysis/wing ────────────────────────────────────────────────
 router.post('/wing', async (req, res) => {
-  const { text, with_context = false, contact_id, user_profile, now_time, typazh_hint, tone } = req.body;
+  const { text, with_context = false, contact_id, user_profile, now_time, typazh_hint, tone, acquaintance, no_analysis = false } = req.body;
   if (!text?.trim())       return res.status(400).json({ ok: false, error: 'text обязателен' });
   if (text.length > MAX_TEXT_LEN)
     return res.status(400).json({ ok: false, error: `Текст не может быть длиннее ${MAX_TEXT_LEN} символов` });
@@ -157,9 +175,47 @@ router.post('/wing', async (req, res) => {
     : null;
   const { norm: toneNorm, text: toneText } = buildToneHint(tone);
   const toneBlock = toneText ? `${toneText}\n\n` : '';
+  const { norm: acqNorm, block: acqBlock } = buildAcqBlock(acquaintance);
+  const acqLine = acqBlock ? `\n\n${acqBlock}` : '';
 
   const user = ensureUser(req);
   if (!checkAndIncrementLimit(user, res, 'wing')) return;
+
+  // ── Режим БЕЗ анализа: короткий промпт wing_quick_mix, только 9 ответов ──────
+  if (no_analysis) {
+    const qp = getPrompt('wing_quick_mix');
+    if (!qp) return res.status(500).json({ ok: false, error: `Промпт 'wing_quick_mix' не найден` });
+    const t0q = Date.now();
+    try {
+      const { content, usage, model } = await callAI({
+        model: qp.model,
+        temperature: qp.temperature,
+        max_tokens: Math.max(qp.max_tokens, 1400),
+        reasoning: 'off',
+        systemPrompt: qp.system_prompt,
+        variables: { user_ctx: buildUserCtx(user_profile) },
+        messages: [{
+          role: 'user',
+          content: `<conversation_history>\n${text}\n</conversation_history>\n\nСейчас: ${nowTimeStr}.${gapHint ? `\n\n${gapHint}` : ''}${acqLine}\n\nБЕЗ анализа. Верни ТОЛЬКО JSON: {"responses":[{"badge":"дружелюбный|игривый|флирт|уверенный|универсальный","text":"...","why":"коротко по смыслу"}, ... РОВНО 9]}.`,
+        }],
+      });
+      logAICall({ endpoint: '/analysis/wing[quick]', model, tokens: usage?.total_tokens, duration: Date.now() - t0q });
+      let parsed; try { parsed = parseAIJson(content); } catch (_) { parsed = null; }
+      const validated = validateWingResult(parsed);
+      const result = { score: null, mood: null, responses: validated.responses || [], summary: '', is_quick_reply: false };
+      const { lastInsertRowid } = db.run(
+        `INSERT INTO analysis_sessions (telegram_user_id, contact_id, input_text, with_context, result, score, mood, input_hash, typazh_hint)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        req.tgUser.id, parseIntId(contact_id) ?? null, truncStored(text), 0,
+        JSON.stringify(result), null, null, sha(`${normText(text)}|noanalysis|${acqNorm || ''}`), hintNorm
+      );
+      return res.json({ ok: true, session_id: lastInsertRowid, result, no_analysis: true, contact_typazh: null, typazh_hint: hintNorm });
+    } catch (err) {
+      logAICall({ endpoint: '/analysis/wing[quick]', model: qp.model, duration: Date.now() - t0q, error: err.message });
+      console.error('[wing quick]', err.message);
+      return res.status(500).json({ ok: false, error: 'Ошибка. Попробуй ещё раз.' });
+    }
+  }
 
   const prompt = getPrompt('wing_analysis');
   if (!prompt) return res.status(500).json({ ok: false, error: `Промпт 'wing_analysis' не найден` });
@@ -173,7 +229,7 @@ router.post('/wing', async (req, res) => {
 
   // Идемпотентность по input_hash (см. RN-версию).
   // tone включён в hash → смена тона = новый анализ, не кэшированный.
-  const inputHash = sha(`${normText(text)}|${contact_id || 'none'}|${with_context ? 1 : 0}|${hintNorm || ''}|${toneNorm || ''}`);
+  const inputHash = sha(`${normText(text)}|${contact_id || 'none'}|${with_context ? 1 : 0}|${hintNorm || ''}|${toneNorm || ''}|${acqNorm || ''}`);
   const prior = db.get(
     `SELECT result FROM analysis_sessions
      WHERE telegram_user_id = ? AND input_hash = ?
@@ -226,7 +282,7 @@ router.post('/wing', async (req, res) => {
 ${text}
 </conversation_history>
 
-Сейчас: ${nowTimeStr}. Парси таймштампы [ДД.ММ.ГГГГ ЧЧ:ММ] если есть.${gapHint ? `\n\n${gapHint}` : ''}
+Сейчас: ${nowTimeStr}. Парси таймштампы [ДД.ММ.ГГГГ ЧЧ:ММ] если есть.${gapHint ? `\n\n${gapHint}` : ''}${acqLine}
 
 Это ПОВТОРНЫЙ запрос — нужны ТОЛЬКО новые 9 вариантов ответа на ту же ситуацию. Стратегия и сигналы прежние.
 
@@ -282,7 +338,7 @@ ${text}
 ${text}
 </conversation_history>
 
-Сейчас: ${nowTimeStr}. Парси таймштампы [ДД.ММ.ГГГГ ЧЧ:ММ] если есть.${gapHint ? `\n\n${gapHint}` : ''}
+Сейчас: ${nowTimeStr}. Парси таймштампы [ДД.ММ.ГГГГ ЧЧ:ММ] если есть.${gapHint ? `\n\n${gapHint}` : ''}${acqLine}
 
 ШАГ 1. Найди в conversation_history САМОЕ ПОСЛЕДНЕЕ сообщение и его автора. Заполни context_read.last_speaker ("she" если её, "he" если парня) и entry_type ("reply" если разрыв < суток, "resume" если с последнего сообщения прошли сутки и больше).
 ШАГ 2. Если её последняя реплика — короткий мусор (ок/ага/+/одиночный смайл/хм/ахаха) — это РЕАКЦИЯ. Подхвати её настрой и веди дальше; НЕ возвращайся долбить провокационное слово из середины. Опирайся на смысл, а не на выдернутое слово.

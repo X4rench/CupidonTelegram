@@ -460,15 +460,19 @@ export async function analyzeWing(params: {
   user_profile?: UserProfile | null;
   /** Стиль ответов: 'auto'|'friendly'|'playful'|'flirty'|'confident'. null/undefined = auto. */
   tone?: string | null;
+  /** Код давности знакомства: 'min30'|'h2'|'today'|'days'|'week'|'weeks'|'month'. */
+  acquaintance?: string | null;
+  /** Режим без анализа: только 9 ответов, короткий промпт (быстрее/дешевле). */
+  noAnalysis?: boolean;
 }): Promise<WingApiResponse> {
-  const { text, withContext = false, contactId = null, typazhHint = null, forceFull = false, user_profile = null, tone = null } = params;
+  const { text, withContext = false, contactId = null, typazhHint = null, forceFull = false, user_profile = null, tone = null, acquaintance = null, noAnalysis = false } = params;
   const trimmed = (text || '').trim();
   const hasHint = typeof typazhHint === 'string' && typazhHint.trim().length > 0;
   const hasTone = typeof tone === 'string' && tone.trim() && tone !== 'auto';
 
   // Quick-reply работает только когда нет hint/контекста/контакта/тона — там
   // упрощённая ветка без полноценного анализа, не хочется в ней усложнять prompt.
-  if (!forceFull && !hasHint && !hasTone && trimmed.length > 0 && trimmed.length < QUICK_REPLY_THRESHOLD && !withContext && !contactId) {
+  if (!forceFull && !hasHint && !hasTone && !noAnalysis && trimmed.length > 0 && trimmed.length < QUICK_REPLY_THRESHOLD && !withContext && !contactId) {
     const res = await fetchAuthed<{ ok: boolean; replies?: { text: string }[] }>('/analysis/quick-reply', {
       method: 'POST',
       body: JSON.stringify({ last_message: trimmed, user_profile }),
@@ -495,6 +499,8 @@ export async function analyzeWing(params: {
       now_time: buildNowTime(),
       typazh_hint: hasHint ? typazhHint!.trim() : null,
       tone: hasTone ? tone : null,
+      acquaintance: acquaintance ?? null,
+      no_analysis: !!noAnalysis,
     }),
   });
 }

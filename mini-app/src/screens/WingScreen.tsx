@@ -16,6 +16,7 @@ import { GradientButton } from '../components/GradientButton';
 import { SecondaryButton } from '../components/SecondaryButton';
 import { AutoGrowTextarea } from '../components/AutoGrowTextarea';
 import { IOSPasteHint } from '../components/IOSPasteHint';
+import { AcquaintanceSlider } from '../components/AcquaintanceSlider';
 import { LimitReachedSheet, type LimitReason } from '../components/LimitReachedSheet';
 import { deleteWingContact } from '../utils/dialogActions';
 import { storage } from '../utils/storage';
@@ -155,6 +156,11 @@ interface GirlAnalysis {
   lastAnalyzedAt?: string;
   lastMsgCount?: number;
   lastMood?: string | null;
+  // Слайдер «сколько знакомы» (индекс ACQ_BUCKETS) + режим «без анализа».
+  acqIdx?: number;
+  noAnalysis?: boolean;
+  lastAnalyzedAcq?: number;
+  lastAnalyzedNoAnalysis?: boolean;
 }
 
 const emptyAnalysis = (): GirlAnalysis => ({
@@ -162,7 +168,21 @@ const emptyAnalysis = (): GirlAnalysis => ({
   showResult: false,
   responsePage: 0,
   regenCount: 0,
+  acqIdx: 2,
+  noAnalysis: false,
 });
+
+// Слайдер давности знакомства: индекс → label (UI) + code (бэк калибрует тон ответов).
+const ACQ_BUCKETS = [
+  { label: '≈30 минут',    code: 'min30' },
+  { label: '≈2 часа',      code: 'h2' },
+  { label: 'сегодня',      code: 'today' },
+  { label: 'пару дней',    code: 'days' },
+  { label: 'около недели', code: 'week' },
+  { label: '2-3 недели',   code: 'weeks' },
+  { label: 'месяц+',       code: 'month' },
+];
+const ACQ_LABELS = ACQ_BUCKETS.map(b => b.label);
 
 const REGEN_LIMIT = 2;
 const NO_CONTACT_ID = '__none__'; // ключ для случая «без выбранного контакта»
@@ -262,6 +282,8 @@ export function WingScreen() {
   const curHintCsv = curHint.length ? curHint.slice().sort().join(',') : '';
   const lastHintCsv = sortedCsv(cur.lastAnalyzedHint);
   const text = cur.text;
+  const acqIdx = cur.acqIdx ?? 2;
+  const noAnalysis = !!cur.noAnalysis;
   const analyzeDisabled =
     !text.trim() ||
     loading ||
@@ -269,7 +291,9 @@ export function WingScreen() {
       cur.showResult &&
       text.trim() === cur.lastAnalyzedText &&
       contextEnabled === !!cur.lastAnalyzedContext &&
-      curHintCsv === lastHintCsv
+      curHintCsv === lastHintCsv &&
+      acqIdx === (cur.lastAnalyzedAcq ?? 2) &&
+      noAnalysis === !!cur.lastAnalyzedNoAnalysis
     );
 
   const hasPrevCtx = !!cur.lastAnalyzedText;
@@ -292,6 +316,8 @@ export function WingScreen() {
         contactId: analyzingContactId,
         typazhHint: hintCsv,
         user_profile: me?.user_profile ?? null,
+        acquaintance: ACQ_BUCKETS[acqIdx]?.code ?? 'today',
+        noAnalysis,
       });
       const now = new Date();
       const pad = (n: number) => n.toString().padStart(2, '0');
@@ -308,6 +334,8 @@ export function WingScreen() {
         lastMsgCount: msgCount,
         lastMood: res.result.mood,
         lastAnalyzedHint: hintCsv ?? undefined,
+        lastAnalyzedAcq: acqIdx,
+        lastAnalyzedNoAnalysis: noAnalysis,
       });
       notificationHaptic('success');
       getAnalysisHistory().then(r => { if (r.ok) setHistory(r.sessions || []); }).catch(() => {});
@@ -562,6 +590,42 @@ export function WingScreen() {
             {/* Чекбокс «использовать прошлый контекст» убран по запросу клиента.
                 Возможность вернуть — флаг contextEnabled остаётся в state, но
                 теперь всегда false (AI анализирует только текущий текст). */}
+          </Card>
+
+          {/* Давность знакомства (калибрует тон ответов) + режим без анализа */}
+          <Card style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Сколько знаком с девушкой</span>
+            <AcquaintanceSlider
+              value={acqIdx}
+              buckets={ACQ_LABELS}
+              onChange={(i) => updateCur({ acqIdx: i })}
+            />
+            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
+            <button
+              onClick={() => { selectionHaptic(); updateCur({ noAnalysis: !noAnalysis }); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}
+              aria-pressed={noAnalysis}
+            >
+              <span style={{
+                width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+                border: noAnalysis ? '1px solid var(--accent-primary)' : '1px solid var(--border-default)',
+                background: noAnalysis ? 'var(--accent-primary)' : 'transparent',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {noAnalysis && (
+                  <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20,6 9,17 4,12" />
+                  </svg>
+                )}
+              </span>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: 14, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  Отвечать без анализа
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--status-positive)', background: 'rgba(34,197,94,0.15)', padding: '1px 7px', borderRadius: 8 }}>быстрее</span>
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>сразу 9 ответов, без оценки и сигналов</span>
+              </span>
+            </button>
           </Card>
 
           <AIThinkingBanner visible={loading} />
