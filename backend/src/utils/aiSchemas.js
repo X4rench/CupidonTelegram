@@ -200,6 +200,29 @@ export function validateFirstMessageResult(raw) {
   return { messages };
 }
 
+// ─── /analysis/real-approach (реальное знакомство) ─────────────────────────────
+// Дерево-сценарий подхода. Дефолты на случай мусора; длинное тире → дефис.
+export function validateRealApproachResult(raw) {
+  const r = isObj(raw) ? raw : {};
+  const clean = (v, len) => safeStr(v, len).replace(/[—–]/g, '-');
+  const strList = (v, n, len = 300) => safeArr(v, n, s => clean(s, len)).filter(Boolean);
+  const branch = (b) => {
+    const o = isObj(b) ? b : {};
+    return { openers: strList(o.openers, 6, 300), behavior: clean(o.behavior, 300) };
+  };
+  const q = isObj(r.quick) ? r.quick : {};
+  const br = isObj(r.branches) ? r.branches : {};
+  return {
+    read:        clean(r.read, 400),
+    prep:        clean(r.prep, 500),
+    eye_contact: clean(r.eye_contact, 400),
+    quick:       { opener: clean(q.opener, 300), next: clean(q.next, 300) },
+    branches:    { in: branch(br.in), neutral: branch(br.neutral), closed: branch(br.closed) },
+    get_contact: strList(r.get_contact, 5, 300),
+    exit:        strList(r.exit, 5, 300),
+  };
+}
+
 // ─── /simulator/finish ───────────────────────────────────────────────────────
 export function validateSimulatorResult(raw) {
   if (!isObj(raw)) {

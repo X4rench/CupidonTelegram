@@ -356,6 +356,42 @@ export async function generateSupport(payload: {
   });
 }
 
+// ── Реальное знакомство (подход вживую) ──────────────────────────────────────
+export interface RealApproachBranch { openers: string[]; behavior: string; }
+export interface RealApproachScenario {
+  read: string;
+  prep: string;
+  eye_contact: string;
+  quick: { opener: string; next: string };
+  branches: { in: RealApproachBranch; neutral: RealApproachBranch; closed: RealApproachBranch };
+  get_contact: string[];
+  exit: string[];
+}
+
+/** Адаптивный сценарий подхода вживую по описанию ситуации (чипсы). */
+export async function generateRealApproach(payload: {
+  where?: string | null;
+  company?: string | null;
+  doing?: string | null;
+  position?: string | null;
+  vibe?: string | null;
+  eye_contact?: string | null;
+  user_profile?: UserProfile | null;
+}): Promise<{ ok: boolean; scenario: RealApproachScenario }> {
+  return fetchAuthed('/analysis/real-approach', {
+    method: 'POST',
+    body: JSON.stringify({
+      where: payload.where ?? null,
+      company: payload.company ?? null,
+      doing: payload.doing ?? null,
+      position: payload.position ?? null,
+      vibe: payload.vibe ?? null,
+      eye_contact: payload.eye_contact ?? null,
+      user_profile: payload.user_profile ?? null,
+    }),
+  });
+}
+
 // ── Contacts API ─────────────────────────────────────────────────────────────
 
 export interface Contact {

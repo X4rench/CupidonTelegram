@@ -54,6 +54,11 @@ const quickActions: QuickAction[] = [
     icon: <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />,
   },
   {
+    key: 'real-approach', name: 'Реальное\nзнакомство', to: '/real-approach',
+    iconColor: '#06B6D4', bg: 'rgba(6,182,212,0.1)',
+    icon: <><circle cx={12} cy={12} r={3.5} /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></>,
+  },
+  {
     key: 'create-girl', name: 'Своя\nдевушка', to: '/create-girl',
     iconColor: '#EC4899', bg: 'rgba(236,72,153,0.1)',
     icon: <><circle cx={12} cy={8} r={4} /><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" /></>,

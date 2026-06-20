@@ -18,6 +18,7 @@ import {
   validateWingResult,
   validateRejectionResult,
   validateSupportResult,
+  validateRealApproachResult,
   validateQuickReplyResult,
   validateRebootResult,
   validateDateInviteResult,
@@ -746,6 +747,49 @@ router.get('/history', (req, res) => {
     req.tgUser.id
   );
   res.json({ ok: true, sessions });
+});
+
+// ── POST /api/v1/analysis/real-approach ──────────────────────────────────────
+// Реальное знакомство: по чипсам-ситуации → адаптивный сценарий подхода (дерево).
+router.post('/real-approach', async (req, res) => {
+  const { where, company, doing, position, vibe, eye_contact, user_profile } = req.body || {};
+  const pick = (v, len = 60) => (typeof v === 'string' && v.trim()) ? sanitizeForPrompt(v.trim(), len) : '';
+  const parts = [];
+  if (pick(where))       parts.push(`Где: ${pick(where)}`);
+  if (pick(company))     parts.push(`С кем: ${pick(company)}`);
+  if (pick(doing))       parts.push(`Что делает: ${pick(doing)}`);
+  if (pick(position))    parts.push(`Сейчас: ${pick(position)}`);
+  if (pick(vibe))        parts.push(`Вайб: ${pick(vibe)}`);
+  if (pick(eye_contact)) parts.push(`Контакт глазами: ${pick(eye_contact)}`);
+  const situation = parts.length ? parts.join('. ') + '.' : 'почти ничего не известно, общий случай';
+
+  const user = ensureUser(req);
+  if (!checkAndIncrementLimit(user, res, 'real_approach')) return;
+
+  const prompt = getPrompt('real_approach');
+  if (!prompt) return res.status(500).json({ ok: false, error: `Промпт 'real_approach' не найден` });
+
+  const t0 = Date.now();
+  try {
+    const { content, usage, model } = await callAI({
+      model:       prompt.model,
+      temperature: prompt.temperature,
+      max_tokens:  Math.max(prompt.max_tokens, 2000),
+      reasoning:   'off',
+      systemPrompt: prompt.system_prompt,
+      variables: { situation, user_ctx: buildUserCtx(user_profile) },
+      messages: [{ role: 'user', content: `Ситуация выше. Дай адаптивный сценарий подхода. Ответь ТОЛЬКО чистым JSON по схеме.` }],
+    });
+    logAICall({ endpoint: '/analysis/real-approach', model, tokens: usage?.total_tokens, duration: Date.now() - t0 });
+    let parsed;
+    try { parsed = parseAIJson(content); } catch (_) { parsed = null; }
+    const scenario = validateRealApproachResult(parsed);
+    res.json({ ok: true, scenario });
+  } catch (err) {
+    logAICall({ endpoint: '/analysis/real-approach', model: prompt.model, duration: Date.now() - t0, error: err.message });
+    console.error('[real-approach]', err.message);
+    res.status(500).json({ ok: false, error: 'Ошибка генерации. Попробуй ещё раз.' });
+  }
 });
 
 export default router;
