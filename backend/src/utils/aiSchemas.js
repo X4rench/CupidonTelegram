@@ -209,10 +209,11 @@ export function validateRealApproachResult(raw) {
   const branch = (b) => {
     const o = isObj(b) ? b : {};
     return {
-      openers:     strList(o.openers, 6, 300),
+      openers:     strList(o.openers, 4, 300),
       behavior:    clean(o.behavior, 300),
-      get_contact: strList(o.get_contact, 3, 300),
-      exit:        strList(o.exit, 3, 300),
+      get_contact: strList(o.get_contact, 2, 300),
+      push:        strList(o.push, 2, 300),
+      exit:        strList(o.exit, 2, 300),
     };
   };
   const q = isObj(r.quick) ? r.quick : {};

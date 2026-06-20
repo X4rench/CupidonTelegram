@@ -357,7 +357,7 @@ export async function generateSupport(payload: {
 }
 
 // ── Реальное знакомство (подход вживую) ──────────────────────────────────────
-export interface RealApproachBranch { openers: string[]; behavior: string; get_contact: string[]; exit: string[]; }
+export interface RealApproachBranch { openers: string[]; behavior: string; get_contact: string[]; push: string[]; exit: string[]; }
 export interface RealApproachScenario {
   read: string;
   prep: string;

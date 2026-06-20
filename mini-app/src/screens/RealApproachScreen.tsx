@@ -45,7 +45,7 @@ const PLAYBOOK = {
   ],
   openers: [
     'привет. увидел тебя и решил подойти - так лучше, чем потом жалеть',
-    'у тебя кофе небось уже остыл, а ты и не заметила. что там в телефоне интереснее зала?',
+    'у тебя кофе небось уже остыл, а ты и не заметила. в телефоне интереснее чем тут?',
     'у меня к тебе спор: ставлю, что не угадаешь, зачем я подошёл',
     'привет) ты улыбнулась, когда я посмотрел, и я решил подойти',
     'репетировал заход, но всё забыл. так что просто привет',
@@ -53,6 +53,11 @@ const PLAYBOOK = {
   contact: [
     'ты слишком интересная, чтобы просто разойтись. телега есть?',
     'давай так: телега, и я напишу что-то, после чего ты улыбнёшься',
+  ],
+  push: [
+    'я и не знакомлюсь обычно) подошёл сказать одно и уйти - на это есть 10 секунд?',
+    'расслабься, замуж не зову. просто стоять рядом и молчать было бы глупо',
+    'честно? ждал, что отошьёшь. но было бы тупо не попробовать',
   ],
   exit: [
     'ладно, не буду красть твоё время. рад, что подошёл',
@@ -170,9 +175,11 @@ export function RealApproachScreen() {
           ))}
           {sectionLabel('Заходы')}
           {PLAYBOOK.openers.map((t, i) => copyRow(t, `pb-o-${i}`))}
-          {sectionLabel('Взять контакт')}
+          {sectionLabel('Если теплеет — взять контакт')}
           {PLAYBOOK.contact.map((t, i) => copyRow(t, `pb-c-${i}`))}
-          {sectionLabel('Выйти красиво')}
+          {sectionLabel('Если отшивает — дожать (1 раз)')}
+          {PLAYBOOK.push.map((t, i) => copyRow(t, `pb-p-${i}`))}
+          {sectionLabel('Если глухо — выйти достойно')}
           {PLAYBOOK.exit.map((t, i) => copyRow(t, `pb-e-${i}`))}
           <div style={{ marginTop: 20 }}>
             <SecondaryButton onClick={() => { selectionHaptic(); setShowPlaybook(false); }}>Назад к описанию</SecondaryButton>
@@ -227,8 +234,9 @@ export function RealApproachScreen() {
                   {sectionLabel('4. Что сказать')}
                   {br.openers.map((t, i) => copyRow(t, `op-${branch}-${i}`))}
                   {br.behavior && <p style={styles.tip}>как держаться: {br.behavior}</p>}
-                  {br.get_contact.length > 0 && (<>{sectionLabel('5. Взять контакт')}{br.get_contact.map((t, i) => copyRow(t, `gc-${branch}-${i}`))}</>)}
-                  {br.exit.length > 0 && (<>{sectionLabel('Не дожимай — выйди достойно')}{br.exit.map((t, i) => copyRow(t, `ex-${branch}-${i}`))}</>)}
+                  {br.get_contact.length > 0 && (<>{sectionLabel('Если теплеет — взять контакт')}{br.get_contact.map((t, i) => copyRow(t, `gc-${branch}-${i}`))}</>)}
+                  {br.push.length > 0 && (<>{sectionLabel('Если отшивает — дожать (1 раз)')}{br.push.map((t, i) => copyRow(t, `pu-${branch}-${i}`))}</>)}
+                  {br.exit.length > 0 && (<>{sectionLabel('Если глухо — выйти достойно')}{br.exit.map((t, i) => copyRow(t, `ex-${branch}-${i}`))}</>)}
                 </>
               )}
             </>
