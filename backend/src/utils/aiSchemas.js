@@ -208,7 +208,12 @@ export function validateRealApproachResult(raw) {
   const strList = (v, n, len = 300) => safeArr(v, n, s => clean(s, len)).filter(Boolean);
   const branch = (b) => {
     const o = isObj(b) ? b : {};
-    return { openers: strList(o.openers, 6, 300), behavior: clean(o.behavior, 300) };
+    return {
+      openers:     strList(o.openers, 6, 300),
+      behavior:    clean(o.behavior, 300),
+      get_contact: strList(o.get_contact, 3, 300),
+      exit:        strList(o.exit, 3, 300),
+    };
   };
   const q = isObj(r.quick) ? r.quick : {};
   const br = isObj(r.branches) ? r.branches : {};
@@ -218,8 +223,6 @@ export function validateRealApproachResult(raw) {
     eye_contact: clean(r.eye_contact, 400),
     quick:       { opener: clean(q.opener, 300), next: clean(q.next, 300) },
     branches:    { in: branch(br.in), neutral: branch(br.neutral), closed: branch(br.closed) },
-    get_contact: strList(r.get_contact, 5, 300),
-    exit:        strList(r.exit, 5, 300),
   };
 }
 

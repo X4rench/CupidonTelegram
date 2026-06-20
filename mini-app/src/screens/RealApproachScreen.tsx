@@ -45,8 +45,9 @@ const PLAYBOOK = {
   ],
   openers: [
     'привет. увидел тебя и решил подойти - так лучше, чем потом жалеть',
-    'ты тут самая спокойная за весь зал. специально такое место выбрала?',
-    'дай угадаю - ждёшь подругу, которая опаздывает. а тут я, вовремя',
+    'у тебя кофе небось уже остыл, а ты и не заметила. что там в телефоне интереснее зала?',
+    'у меня к тебе спор: ставлю, что не угадаешь, зачем я подошёл',
+    'привет) ты улыбнулась, когда я посмотрел, и я решил подойти',
     'репетировал заход, но всё забыл. так что просто привет',
   ],
   contact: [
@@ -56,7 +57,7 @@ const PLAYBOOK = {
   exit: [
     'ладно, не буду красть твоё время. рад, что подошёл',
     'всё, ухожу, пока не начал нравиться слишком сильно)',
-    'понял, не моё время) хорошего дня, правда',
+    'понял, не моё время) хорошего дня',
   ],
 };
 
@@ -201,7 +202,7 @@ export function RealApproachScreen() {
               {sectionLabel('Если времени нет / она уходит')}
               {scenario.quick?.opener && copyRow(scenario.quick.opener, 'q-op')}
               {scenario.quick?.next && <p style={styles.tip}>дальше: {scenario.quick.next}</p>}
-              {scenario.get_contact?.length > 0 && (<>{sectionLabel('Взять контакт')}{copyRow(scenario.get_contact[0], 'q-gc')}</>)}
+              {scenario.branches?.in?.get_contact?.[0] && (<>{sectionLabel('Взять контакт')}{copyRow(scenario.branches.in.get_contact[0], 'q-gc')}</>)}
             </>
           ) : (
             <>
@@ -226,11 +227,10 @@ export function RealApproachScreen() {
                   {sectionLabel('4. Что сказать')}
                   {br.openers.map((t, i) => copyRow(t, `op-${branch}-${i}`))}
                   {br.behavior && <p style={styles.tip}>как держаться: {br.behavior}</p>}
+                  {br.get_contact.length > 0 && (<>{sectionLabel('5. Взять контакт')}{br.get_contact.map((t, i) => copyRow(t, `gc-${branch}-${i}`))}</>)}
+                  {br.exit.length > 0 && (<>{sectionLabel('Не дожимай — выйди достойно')}{br.exit.map((t, i) => copyRow(t, `ex-${branch}-${i}`))}</>)}
                 </>
               )}
-
-              {scenario.get_contact?.length > 0 && (<>{sectionLabel('5. Взять контакт')}{scenario.get_contact.map((t, i) => copyRow(t, `gc-${i}`))}</>)}
-              {scenario.exit?.length > 0 && (<>{sectionLabel('Если не пошло — выйти красиво')}{scenario.exit.map((t, i) => copyRow(t, `ex-${i}`))}</>)}
             </>
           )}
 
