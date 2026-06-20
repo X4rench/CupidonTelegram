@@ -853,7 +853,7 @@ export function WingScreen() {
                             </svg>
                           </button>
                           <span style={{ ...styles.toneBadge, color: tm.color, borderColor: tm.color }}>
-                            {tm.label}{multi ? ' · 2 сообщения' : ''}
+                            {tm.label}{multi ? ` · ${parts.length} сообщения` : ''}
                           </span>
                           {multi ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
