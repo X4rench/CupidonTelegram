@@ -174,6 +174,28 @@ function buildGoalHint(goal) {
   return { norm: key, block: GOAL_HINTS[key] };
 }
 
+// Гарантия контраста подачи: модель любит дробить ВСЕ ответы на 2-3 пузыря.
+// Схлопываем самые короткие разбитые (text с \n) в одну строку, пока не
+// наберётся минимум minSingle одиночных «коротких выстрелов». Работает поверх
+// промпта И кэша (применяется при отдаче). Массив копируем — кэш не мутируем.
+function enforceBubbleBalance(responses, minSingle = 3) {
+  if (!Array.isArray(responses) || responses.length <= minSingle) return responses;
+  const out = responses.slice();
+  const hasBreak = (r) => typeof r?.text === 'string' && r.text.includes('\n');
+  let singles = out.filter(r => !hasBreak(r)).length;
+  if (singles >= minSingle) return out;
+  const splitOrder = out
+    .map((r, i) => ({ i, len: (r && r.text ? r.text.length : 0), split: hasBreak(r) }))
+    .filter(x => x.split)
+    .sort((a, b) => a.len - b.len);
+  for (const { i } of splitOrder) {
+    if (singles >= minSingle) break;
+    out[i] = { ...out[i], text: String(out[i].text).split('\n').map(s => s.trim()).filter(Boolean).join(' ') };
+    singles++;
+  }
+  return out;
+}
+
 // ── POST /api/v1/analysis/wing ────────────────────────────────────────────────
 router.post('/wing', async (req, res) => {
   const { text, with_context = false, contact_id, user_profile, now_time, typazh_hint, tone, acquaintance, goal, no_analysis = false } = req.body;
@@ -222,7 +244,7 @@ router.post('/wing', async (req, res) => {
       logAICall({ endpoint: '/analysis/wing[quick]', model, tokens: usage?.total_tokens, duration: Date.now() - t0q });
       let parsed; try { parsed = parseAIJson(content); } catch (_) { parsed = null; }
       const validated = validateWingResult(parsed);
-      const result = { score: null, mood: null, responses: validated.responses || [], summary: '', is_quick_reply: false };
+      const result = { score: null, mood: null, responses: enforceBubbleBalance(validated.responses || []), summary: '', is_quick_reply: false };
       const { lastInsertRowid } = db.run(
         `INSERT INTO analysis_sessions (telegram_user_id, contact_id, input_text, with_context, result, score, mood, input_hash, typazh_hint)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -320,7 +342,7 @@ ${text}
         newResponses = validated.responses.length ? validated.responses : (priorResult.responses || []);
         await setCached(regenKey, newResponses, 3600);
       }
-      const merged = { ...priorResult, responses: newResponses };
+      const merged = { ...priorResult, responses: enforceBubbleBalance(newResponses) };
       const { lastInsertRowid } = db.run(
         `INSERT INTO analysis_sessions (telegram_user_id, contact_id, input_text, with_context, result, score, mood, input_hash, typazh_hint)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -377,6 +399,7 @@ ${text}
     try { result = parseAIJson(content); }
     catch (_) { result = null; }
     result = validateWingResult(result);
+    result.responses = enforceBubbleBalance(result.responses);
 
     const { lastInsertRowid } = db.run(
       `INSERT INTO analysis_sessions (telegram_user_id, contact_id, input_text, with_context, result, score, mood, input_hash, typazh_hint)
