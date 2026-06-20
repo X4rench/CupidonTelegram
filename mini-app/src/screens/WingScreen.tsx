@@ -837,12 +837,14 @@ export function WingScreen() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {displayed.map((r, i) => {
                       const tm = toneMeta(r.badge);
+                      const parts = String(r.text || '').split('\n').map(s => s.trim()).filter(Boolean);
+                      const multi = parts.length > 1;
                       return (
                         <div key={i} style={styles.responseItem}>
                           <button
                             onClick={() => copyText(r.text)}
                             style={styles.copyBtn}
-                            aria-label="Скопировать"
+                            aria-label="Скопировать всё"
                           >
                             <svg width={14} height={14} viewBox="0 0 24 24" fill="none"
                               stroke="var(--text-muted)" strokeWidth={2}>
@@ -851,9 +853,29 @@ export function WingScreen() {
                             </svg>
                           </button>
                           <span style={{ ...styles.toneBadge, color: tm.color, borderColor: tm.color }}>
-                            {tm.label}
+                            {tm.label}{multi ? ' · 2 сообщения' : ''}
                           </span>
-                          <p style={styles.responseText}>{r.text}</p>
+                          {multi ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {parts.map((p, j) => (
+                                <div key={j} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'var(--bg-card)', borderRadius: 10, padding: '8px 10px' }}>
+                                  <span style={{ flex: 1, fontSize: 14, lineHeight: '20px', color: 'var(--text-primary)' }}>{p}</span>
+                                  <button
+                                    onClick={() => copyText(p)}
+                                    style={{ flexShrink: 0, background: 'none', border: 0, cursor: 'pointer', padding: 2 }}
+                                    aria-label={`Скопировать сообщение ${j + 1}`}
+                                  >
+                                    <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth={2}>
+                                      <rect x={9} y={9} width={13} height={13} rx={2} />
+                                      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p style={styles.responseText}>{r.text}</p>
+                          )}
                           <p style={styles.responseWhy}>
                             {tm.desc}{r.why ? ` · ${r.why}` : ''}
                           </p>
