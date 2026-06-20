@@ -158,9 +158,25 @@ function buildAcqBlock(acquaintance) {
   return { norm: key, block: ACQ_HINTS[key] };
 }
 
+// ── Цель на девушку (селектор) → стратегическая рамка ответов (оба режима) ────
+const GOAL_HINTS = {
+  chat:         'ЦЕЛЬ С НЕЙ: просто общение — поддержать диалог, узнавать её, легко и тепло. Флирт минимальный, не дожимать.',
+  friends:      'ЦЕЛЬ С НЕЙ: по-дружески — тёплое приятельское общение, БЕЗ флирта и романтических намёков.',
+  flirt:        'ЦЕЛЬ С НЕЙ: флирт/симпатия — показывай интерес, лёгкий тиз и намёки, держи игривость.',
+  closer:       'ЦЕЛЬ С НЕЙ: сблизиться — постепенная эскалация близости, теплее и смелее, личные темы уместны.',
+  date:         'ЦЕЛЬ С НЕЙ: позвать на свидание — веди к встрече: мостики к оффлайну, при удобном моменте мягкое приглашение-констатация.',
+  relationship: 'ЦЕЛЬ С НЕЙ: отношения — узнавай глубже, искренний интерес к её миру, инвестируй, без спешки в близость.',
+};
+function buildGoalHint(goal) {
+  if (typeof goal !== 'string') return { norm: null, block: '' };
+  const key = goal.trim().toLowerCase();
+  if (!GOAL_HINTS[key]) return { norm: null, block: '' };
+  return { norm: key, block: GOAL_HINTS[key] };
+}
+
 // ── POST /api/v1/analysis/wing ────────────────────────────────────────────────
 router.post('/wing', async (req, res) => {
-  const { text, with_context = false, contact_id, user_profile, now_time, typazh_hint, tone, acquaintance, no_analysis = false } = req.body;
+  const { text, with_context = false, contact_id, user_profile, now_time, typazh_hint, tone, acquaintance, goal, no_analysis = false } = req.body;
   if (!text?.trim())       return res.status(400).json({ ok: false, error: 'text обязателен' });
   if (text.length > MAX_TEXT_LEN)
     return res.status(400).json({ ok: false, error: `Текст не может быть длиннее ${MAX_TEXT_LEN} символов` });
@@ -177,6 +193,8 @@ router.post('/wing', async (req, res) => {
   const toneBlock = toneText ? `${toneText}\n\n` : '';
   const { norm: acqNorm, block: acqBlock } = buildAcqBlock(acquaintance);
   const acqLine = acqBlock ? `\n\n${acqBlock}` : '';
+  const { norm: goalNorm, block: goalBlock } = buildGoalHint(goal);
+  const goalLine = goalBlock ? `\n\n${goalBlock}` : '';
 
   const user = ensureUser(req);
   if (!checkAndIncrementLimit(user, res, 'wing')) return;
@@ -196,7 +214,7 @@ router.post('/wing', async (req, res) => {
         variables: { user_ctx: buildUserCtx(user_profile) },
         messages: [{
           role: 'user',
-          content: `<conversation_history>\n${text}\n</conversation_history>\n\nСейчас: ${nowTimeStr}.${gapHint ? `\n\n${gapHint}` : ''}${acqLine}\n\nБЕЗ анализа. Верни ТОЛЬКО JSON: {"responses":[{"badge":"дружелюбный|игривый|флирт|уверенный|универсальный","text":"...","why":"коротко по смыслу"}, ... РОВНО 9]}.`,
+          content: `<conversation_history>\n${text}\n</conversation_history>\n\nСейчас: ${nowTimeStr}.${gapHint ? `\n\n${gapHint}` : ''}${acqLine}${goalLine}\n\nБЕЗ анализа. Сам определи лучший ход под последнее её сообщение. Верни ТОЛЬКО JSON: {"responses":[{"badge":"дружелюбный|игривый|флирт|уверенный|универсальный","text":"...","why":"коротко по смыслу"}, ... РОВНО 9; среди них 2-3 — вопрос ей]}.`,
         }],
       });
       logAICall({ endpoint: '/analysis/wing[quick]', model, tokens: usage?.total_tokens, duration: Date.now() - t0q });
@@ -229,7 +247,7 @@ router.post('/wing', async (req, res) => {
 
   // Идемпотентность по input_hash (см. RN-версию).
   // tone включён в hash → смена тона = новый анализ, не кэшированный.
-  const inputHash = sha(`${normText(text)}|${contact_id || 'none'}|${with_context ? 1 : 0}|${hintNorm || ''}|${toneNorm || ''}|${acqNorm || ''}`);
+  const inputHash = sha(`${normText(text)}|${contact_id || 'none'}|${with_context ? 1 : 0}|${hintNorm || ''}|${toneNorm || ''}|${acqNorm || ''}|${goalNorm || ''}`);
   const prior = db.get(
     `SELECT result FROM analysis_sessions
      WHERE telegram_user_id = ? AND input_hash = ?
@@ -282,13 +300,13 @@ router.post('/wing', async (req, res) => {
 ${text}
 </conversation_history>
 
-Сейчас: ${nowTimeStr}. Парси таймштампы [ДД.ММ.ГГГГ ЧЧ:ММ] если есть.${gapHint ? `\n\n${gapHint}` : ''}${acqLine}
+Сейчас: ${nowTimeStr}. Парси таймштампы [ДД.ММ.ГГГГ ЧЧ:ММ] если есть.${gapHint ? `\n\n${gapHint}` : ''}${acqLine}${goalLine}
 
 Это ПОВТОРНЫЙ запрос — нужны ТОЛЬКО новые 9 вариантов ответа на ту же ситуацию. Стратегия и сигналы прежние.
 
 ЧИТАЙ СУТЬ, не отдельные слова: реагируй на СМЫСЛ её последнего хода и вайб. Грубое словцо в шутку — её юмор, не тема; «ахаха»/смайл — ей хорошо, подхвати волну, не долби слово из середины. Живой диалог (<суток) — на последний ход; разрыв ≥ суток — заход заново (свежий повод, без "ты пропала?/живая?").
 
-СОСТАВ 9 (поле badge): 2 «дружелюбный», 2 «игривый», 2 «флирт», 2 «уверенный», 1 «универсальный». Каждый в своём тоне, по смыслу. Живой мессенджер с переносами \\n.
+СОСТАВ 9 (поле badge): 2 «дружелюбный», 2 «игривый», 2 «флирт», 2 «уверенный», 1 «универсальный». Среди 9 минимум 2-3 — ВОПРОС ей (узнать/продвинуть тему), остальные реакции/заходы; разные по ходу. Каждый в своём тоне, по смыслу, под ЦЕЛЬ. Живой мессенджер с переносами \\n.
 
 Верни ТОЛЬКО JSON: {"responses": [{"badge":"дружелюбный|игривый|флирт|уверенный|универсальный","text":"...","why":"коротко почему зайдёт по смыслу"}, ... ровно 9]}.`,
           }],
@@ -338,11 +356,11 @@ ${text}
 ${text}
 </conversation_history>
 
-Сейчас: ${nowTimeStr}. Парси таймштампы [ДД.ММ.ГГГГ ЧЧ:ММ] если есть.${gapHint ? `\n\n${gapHint}` : ''}${acqLine}
+Сейчас: ${nowTimeStr}. Парси таймштампы [ДД.ММ.ГГГГ ЧЧ:ММ] если есть.${gapHint ? `\n\n${gapHint}` : ''}${acqLine}${goalLine}
 
 ШАГ 1. Найди в conversation_history САМОЕ ПОСЛЕДНЕЕ сообщение и его автора. Заполни context_read.last_speaker ("she" если её, "he" если парня) и entry_type ("reply" если разрыв < суток, "resume" если с последнего сообщения прошли сутки и больше).
 ШАГ 2. Если её последняя реплика — короткий мусор (ок/ага/+/одиночный смайл/хм/ахаха) — это РЕАКЦИЯ. Подхвати её настрой и веди дальше; НЕ возвращайся долбить провокационное слово из середины. Опирайся на смысл, а не на выдернутое слово.
-ШАГ 3. Заполни schema: score, mood, engagement, trust, sentiment, context_read (last_speaker, hours_since_her_last, her_mood, entry_type), girl_typazh_description (2-3 предл.), signals, strategy (КАК отвечать — не пересказ), responses (РОВНО 9, у КАЖДОГО поле badge; состав: 2 «дружелюбный», 2 «игривый», 2 «флирт», 2 «уверенный», 1 «универсальный»; каждый ответ — по СМЫСЛУ её хода, в своём тоне, живой мессенджер с переносами \\n), media_hint (null если нет всех 5 условий), summary.
+ШАГ 3. Заполни schema: score, mood, engagement, trust, sentiment, context_read (last_speaker, hours_since_her_last, her_mood, entry_type), girl_typazh_description (2-3 предл.), signals, strategy (НАЧНИ с «Сейчас лучший ход: X», где X — спросить / вытащить из неловкости / флирт / звать на встречу / поддержать вайб / сменить тему; затем коротко КАК; не пересказ), responses (РОВНО 9, у КАЖДОГО поле badge; состав тонов: 2 «дружелюбный», 2 «игривый», 2 «флирт», 2 «уверенный», 1 «универсальный»; ПРИ ЭТОМ среди 9 минимум 2-3 — это ВОПРОС ей (узнать о ней / продвинуть тему), остальные реакции/заходы; ответы разные по ХОДУ, не однотипные; каждый — по СМЫСЛУ её хода и под ЦЕЛЬ, в своём тоне, живой мессенджер с переносами \\n), media_hint (null если нет всех 5 условий), summary.
 
 ГЛАВНОЕ ПРАВИЛО (живой диалог, разрыв < суток): все 9 responses[].text — РЕАКЦИЯ СТРОГО на ПОСЛЕДНЕЕ сообщение в conversation_history (или на последнюю содержательную её реплику если последнее — мусор). Контекст истории — только для тона, типажа и понимания паттерна, НЕ как тема ответа. Любой из 9 ответов цепляющийся за реплику из середины при наличии свежей = ПРОВАЛ ЗАДАЧИ. ИСКЛЮЧЕНИЕ: если разрыв ≥ суток — работает блок ВРЕМЯ (режим захода заново): 9 ответов не отвечают на старое, а заходят заново свежим поводом; проигнорированный вопрос не переспрашивать.
 

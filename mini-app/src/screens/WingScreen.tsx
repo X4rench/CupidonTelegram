@@ -156,11 +156,13 @@ interface GirlAnalysis {
   lastAnalyzedAt?: string;
   lastMsgCount?: number;
   lastMood?: string | null;
-  // Слайдер «сколько знакомы» (индекс ACQ_BUCKETS) + режим «без анализа».
+  // Слайдер «сколько знакомы» (индекс ACQ_BUCKETS) + режим «без анализа» + цель.
   acqIdx?: number;
   noAnalysis?: boolean;
+  goal?: string;
   lastAnalyzedAcq?: number;
   lastAnalyzedNoAnalysis?: boolean;
+  lastAnalyzedGoal?: string;
 }
 
 const emptyAnalysis = (): GirlAnalysis => ({
@@ -170,6 +172,7 @@ const emptyAnalysis = (): GirlAnalysis => ({
   regenCount: 0,
   acqIdx: 2,
   noAnalysis: false,
+  goal: 'chat',
 });
 
 // Слайдер давности знакомства: индекс → label (UI) + code (бэк калибрует тон ответов).
@@ -183,6 +186,16 @@ const ACQ_BUCKETS = [
   { label: 'месяц+',       code: 'month' },
 ];
 const ACQ_LABELS = ACQ_BUCKETS.map(b => b.label);
+
+// Цель на девушку — стратегическая рамка (бэк калибрует все ответы под неё).
+const GOALS = [
+  { code: 'chat',         label: 'Просто общение' },
+  { code: 'friends',      label: 'По-дружески' },
+  { code: 'flirt',        label: 'Флирт' },
+  { code: 'closer',       label: 'Сблизиться' },
+  { code: 'date',         label: 'Позвать на свидание' },
+  { code: 'relationship', label: 'Отношения' },
+];
 
 const REGEN_LIMIT = 2;
 const NO_CONTACT_ID = '__none__'; // ключ для случая «без выбранного контакта»
@@ -284,6 +297,7 @@ export function WingScreen() {
   const text = cur.text;
   const acqIdx = cur.acqIdx ?? 2;
   const noAnalysis = !!cur.noAnalysis;
+  const goal = cur.goal ?? 'chat';
   const analyzeDisabled =
     !text.trim() ||
     loading ||
@@ -293,7 +307,8 @@ export function WingScreen() {
       contextEnabled === !!cur.lastAnalyzedContext &&
       curHintCsv === lastHintCsv &&
       acqIdx === (cur.lastAnalyzedAcq ?? 2) &&
-      noAnalysis === !!cur.lastAnalyzedNoAnalysis
+      noAnalysis === !!cur.lastAnalyzedNoAnalysis &&
+      goal === (cur.lastAnalyzedGoal ?? 'chat')
     );
 
   const hasPrevCtx = !!cur.lastAnalyzedText;
@@ -317,6 +332,7 @@ export function WingScreen() {
         typazhHint: hintCsv,
         user_profile: me?.user_profile ?? null,
         acquaintance: ACQ_BUCKETS[acqIdx]?.code ?? 'today',
+        goal,
         noAnalysis,
       });
       const now = new Date();
@@ -336,6 +352,7 @@ export function WingScreen() {
         lastAnalyzedHint: hintCsv ?? undefined,
         lastAnalyzedAcq: acqIdx,
         lastAnalyzedNoAnalysis: noAnalysis,
+        lastAnalyzedGoal: goal,
       });
       notificationHaptic('success');
       getAnalysisHistory().then(r => { if (r.ok) setHistory(r.sessions || []); }).catch(() => {});
@@ -594,6 +611,28 @@ export function WingScreen() {
 
           {/* Давность знакомства (калибрует тон ответов) + режим без анализа */}
           <Card style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Цель с ней</span>
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 2 }}>
+              {GOALS.map(g => {
+                const active = goal === g.code;
+                return (
+                  <button
+                    key={g.code}
+                    onClick={() => { selectionHaptic(); updateCur({ goal: g.code }); }}
+                    style={{
+                      flexShrink: 0, padding: '6px 12px', borderRadius: 14, cursor: 'pointer',
+                      fontSize: 13, whiteSpace: 'nowrap',
+                      border: active ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                      background: active ? 'var(--accent-primary)' : 'var(--bg-elevated)',
+                      color: active ? '#fff' : 'var(--text-secondary)',
+                    }}
+                  >
+                    {g.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '2px 0' }} />
             <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Сколько знаком с девушкой</span>
             <AcquaintanceSlider
               value={acqIdx}

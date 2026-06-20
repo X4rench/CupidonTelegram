@@ -462,10 +462,12 @@ export async function analyzeWing(params: {
   tone?: string | null;
   /** Код давности знакомства: 'min30'|'h2'|'today'|'days'|'week'|'weeks'|'month'. */
   acquaintance?: string | null;
+  /** Цель на девушку: 'chat'|'friends'|'flirt'|'closer'|'date'|'relationship'. */
+  goal?: string | null;
   /** Режим без анализа: только 9 ответов, короткий промпт (быстрее/дешевле). */
   noAnalysis?: boolean;
 }): Promise<WingApiResponse> {
-  const { text, withContext = false, contactId = null, typazhHint = null, forceFull = false, user_profile = null, tone = null, acquaintance = null, noAnalysis = false } = params;
+  const { text, withContext = false, contactId = null, typazhHint = null, forceFull = false, user_profile = null, tone = null, acquaintance = null, goal = null, noAnalysis = false } = params;
   const trimmed = (text || '').trim();
   const hasHint = typeof typazhHint === 'string' && typazhHint.trim().length > 0;
   const hasTone = typeof tone === 'string' && tone.trim() && tone !== 'auto';
@@ -500,6 +502,7 @@ export async function analyzeWing(params: {
       typazh_hint: hasHint ? typazhHint!.trim() : null,
       tone: hasTone ? tone : null,
       acquaintance: acquaintance ?? null,
+      goal: goal ?? null,
       no_analysis: !!noAnalysis,
     }),
   });
