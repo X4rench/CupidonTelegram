@@ -179,8 +179,14 @@ function buildGoalHint(goal) {
 // наберётся минимум minSingle одиночных «коротких выстрелов». Работает поверх
 // промпта И кэша (применяется при отдаче). Массив копируем — кэш не мутируем.
 function enforceBubbleBalance(responses, minSingle = 3) {
-  if (!Array.isArray(responses) || responses.length <= minSingle) return responses;
-  const out = responses.slice();
+  if (!Array.isArray(responses)) return responses;
+  // 1) Длинное тире «—»/«–» → короткий дефис «-» во ВСЕХ ответах (по просьбе владельца).
+  let out = responses.map(r =>
+    (r && typeof r.text === 'string' && /[—–]/.test(r.text))
+      ? { ...r, text: r.text.replace(/[—–]/g, '-') }
+      : r);
+  // 2) Баланс подачи: минимум minSingle ответов одной строкой (модель любит дробить всё).
+  if (out.length <= minSingle) return out;
   const hasBreak = (r) => typeof r?.text === 'string' && r.text.includes('\n');
   let singles = out.filter(r => !hasBreak(r)).length;
   if (singles >= minSingle) return out;
