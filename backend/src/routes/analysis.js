@@ -194,7 +194,9 @@ router.post('/wing', async (req, res) => {
   const { norm: acqNorm, block: acqBlock } = buildAcqBlock(acquaintance);
   const acqLine = acqBlock ? `\n\n${acqBlock}` : '';
   const { norm: goalNorm, block: goalBlock } = buildGoalHint(goal);
-  const goalLine = goalBlock ? `\n\n${goalBlock}` : '';
+  const goalLine = goalBlock
+    ? `\n\n${goalBlock}\nЦель — это НАПРАВЛЕНИЕ, а не задача на одно сообщение. Веди к ней ПОСТЕПЕННО: шаг подбирай под текущий момент диалога и под то, сколько вы знакомы. НЕ форсируй и не дожимай раньше времени — если ещё рано или она прохладна, просто двинь на ОДИН шаг ближе к цели, а не прыгай к финалу.`
+    : '';
 
   const user = ensureUser(req);
   if (!checkAndIncrementLimit(user, res, 'wing')) return;
