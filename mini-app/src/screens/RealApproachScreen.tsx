@@ -25,6 +25,7 @@ const DOING    = ['в телефоне', 'пьёт кофе', 'ждёт кого
 const POSITION = ['сидит', 'уходит'];
 const VIBE     = ['спортивная', 'гламур', 'скромная', 'деловая', 'творческая'];
 const EYE      = ['она смотрела', 'переглянулись', 'нет'];
+const GOAL     = ['свидание', 'флирт', 'общение', 'тренировка'];
 
 type BranchKey = 'in' | 'neutral' | 'closed';
 const BRANCHES: { key: BranchKey; label: string; hint: string; color: string }[] = [
@@ -77,6 +78,7 @@ export function RealApproachScreen() {
   const [position, setPosition] = useState('');
   const [vibe, setVibe] = useState('');
   const [eye, setEye] = useState('');
+  const [goal, setGoal] = useState('свидание');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,7 +117,7 @@ export function RealApproachScreen() {
     setBranch(null);
     try {
       const res = await generateRealApproach({
-        where, company, doing, position, vibe, eye_contact: eye,
+        where, company, doing, position, vibe, eye_contact: eye, goal,
         user_profile: me?.user_profile ?? null,
       });
       setScenario(res.scenario);
@@ -264,6 +266,7 @@ export function RealApproachScreen() {
         {chipRow('Сейчас', POSITION, position, setPosition)}
         {chipRow('Вайб', VIBE, vibe, setVibe)}
         {chipRow('Контакт глазами', EYE, eye, setEye)}
+        {chipRow('Зачем (цель)', GOAL, goal, setGoal)}
 
         <div style={{ marginTop: 20 }}>
           <GradientButton full loading={loading} onClick={handleSubmit}>

@@ -175,6 +175,19 @@ function buildGoalHint(goal) {
   return { norm: key, block: GOAL_HINTS[key] };
 }
 
+// ── Цель подхода вживую (реальное знакомство) → рамка тона и закрытия ─────────
+// Меняет стратегию (энергию захода + тип закрытия), НЕ floor-правила.
+const REAL_GOAL_HINTS = {
+  'свидание':   'ЦЕЛЬ: свидание/отношения — тепло и искренний интерес; в закрытии веди к КОНКРЕТНОЙ встрече (кофе/прогулка), сей следующий шаг, а не просто номер.',
+  'флирт':      'ЦЕЛЬ: флирт — больше лёгкого напряжения и игры, чуть смелее; читай её доступность; контакт всё равно через номер, без пошлости.',
+  'общение':    'ЦЕЛЬ: просто познакомиться/общение — расслабленно, по-человечески, без романтического давления; достаточно спокойно взять номер.',
+  'тренировка': 'ЦЕЛЬ: тренировка (побороть страх) — низкие ставки, фокус на чистом подходе, а не результате; спокойнее к отказу, можно лёгкие эксперименты.',
+};
+function buildRealGoalHint(goal) {
+  if (typeof goal !== 'string') return '';
+  return REAL_GOAL_HINTS[goal.trim().toLowerCase()] || '';
+}
+
 // Гарантия контраста подачи: модель любит дробить ВСЕ ответы на 2-3 пузыря.
 // Схлопываем самые короткие разбитые (text с \n) в одну строку, пока не
 // наберётся минимум minSingle одиночных «коротких выстрелов». Работает поверх
@@ -752,7 +765,7 @@ router.get('/history', (req, res) => {
 // ── POST /api/v1/analysis/real-approach ──────────────────────────────────────
 // Реальное знакомство: по чипсам-ситуации → адаптивный сценарий подхода (дерево).
 router.post('/real-approach', async (req, res) => {
-  const { where, company, doing, position, vibe, eye_contact, user_profile } = req.body || {};
+  const { where, company, doing, position, vibe, eye_contact, goal, user_profile } = req.body || {};
   const pick = (v, len = 60) => (typeof v === 'string' && v.trim()) ? sanitizeForPrompt(v.trim(), len) : '';
   const parts = [];
   if (pick(where))       parts.push(`Где: ${pick(where)}`);
@@ -777,7 +790,7 @@ router.post('/real-approach', async (req, res) => {
       max_tokens:  Math.max(prompt.max_tokens, 2000),
       reasoning:   'off',
       systemPrompt: prompt.system_prompt,
-      variables: { situation, user_ctx: buildUserCtx(user_profile) },
+      variables: { situation, goal_hint: buildRealGoalHint(goal), user_ctx: buildUserCtx(user_profile) },
       messages: [{ role: 'user', content: `Ситуация выше. Дай адаптивный сценарий подхода. Ответь ТОЛЬКО чистым JSON по схеме.` }],
     });
     logAICall({ endpoint: '/analysis/real-approach', model, tokens: usage?.total_tokens, duration: Date.now() - t0 });
