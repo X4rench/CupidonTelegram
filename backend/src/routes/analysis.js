@@ -765,7 +765,7 @@ router.get('/history', (req, res) => {
 // ── POST /api/v1/analysis/real-approach ──────────────────────────────────────
 // Реальное знакомство: по чипсам-ситуации → адаптивный сценарий подхода (дерево).
 router.post('/real-approach', async (req, res) => {
-  const { where, company, doing, position, vibe, eye_contact, goal, user_profile } = req.body || {};
+  const { where, company, doing, position, vibe, eye_contact, goal, details, user_profile } = req.body || {};
   const pick = (v, len = 60) => (typeof v === 'string' && v.trim()) ? sanitizeForPrompt(v.trim(), len) : '';
   const parts = [];
   if (pick(where))       parts.push(`Где: ${pick(where)}`);
@@ -774,6 +774,7 @@ router.post('/real-approach', async (req, res) => {
   if (pick(position))    parts.push(`Сейчас: ${pick(position)}`);
   if (pick(vibe))        parts.push(`Вайб: ${pick(vibe)}`);
   if (pick(eye_contact)) parts.push(`Контакт глазами: ${pick(eye_contact)}`);
+  if (pick(details, 120)) parts.push(`Детали (словами от него): ${pick(details, 120)}`);
   const situation = parts.length ? parts.join('. ') + '.' : 'почти ничего не известно, общий случай';
 
   const user = ensureUser(req);

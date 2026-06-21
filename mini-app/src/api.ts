@@ -376,6 +376,7 @@ export async function generateRealApproach(payload: {
   vibe?: string | null;
   eye_contact?: string | null;
   goal?: string | null;
+  details?: string | null;
   user_profile?: UserProfile | null;
 }): Promise<{ ok: boolean; scenario: RealApproachScenario }> {
   return fetchAuthed('/analysis/real-approach', {
@@ -388,6 +389,7 @@ export async function generateRealApproach(payload: {
       vibe: payload.vibe ?? null,
       eye_contact: payload.eye_contact ?? null,
       goal: payload.goal ?? null,
+      details: payload.details ?? null,
       user_profile: payload.user_profile ?? null,
     }),
   });

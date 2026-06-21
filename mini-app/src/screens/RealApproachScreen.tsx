@@ -19,7 +19,7 @@ import { impactHaptic, notificationHaptic, selectionHaptic } from '../utils/hapt
 import { useMe } from '../contexts/MeContext';
 import { generateRealApproach, ApiError, type RealApproachScenario } from '../api';
 
-const WHERE    = ['кафе', 'улица', 'транспорт', 'зал', 'ТЦ', 'парк'];
+const WHERE    = ['кафе', 'улица', 'транспорт', 'спортзал', 'ТЦ', 'парк'];
 const COMPANY  = ['одна', 'с подругой', 'компания', 'с собакой'];
 const DOING    = ['в телефоне', 'пьёт кофе', 'ждёт кого-то', 'идёт мимо', 'отдыхает', 'работает'];
 const POSITION = ['сидит', 'уходит'];
@@ -79,6 +79,7 @@ export function RealApproachScreen() {
   const [vibe, setVibe] = useState('');
   const [eye, setEye] = useState('');
   const [goal, setGoal] = useState('свидание');
+  const [details, setDetails] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +119,7 @@ export function RealApproachScreen() {
     try {
       const res = await generateRealApproach({
         where, company, doing, position, vibe, eye_contact: eye, goal,
+        details: details.trim().slice(0, 120),
         user_profile: me?.user_profile ?? null,
       });
       setScenario(res.scenario);
@@ -269,6 +271,18 @@ export function RealApproachScreen() {
         {chipRow('Контакт глазами', EYE, eye, setEye)}
         {chipRow('Зачем (цель)', GOAL, goal, setGoal)}
 
+        <div style={{ marginTop: 14 }}>
+          <div style={styles.subLabel}>В двух словах (необязательно)</div>
+          <textarea
+            value={details}
+            onChange={e => setDetails(e.target.value.slice(0, 120))}
+            placeholder="если чипсов мало — опиши нюанс: что делает, во что одета, контекст"
+            rows={2}
+            maxLength={120}
+            style={styles.input}
+          />
+        </div>
+
         <div style={{ marginTop: 20 }}>
           <GradientButton full loading={loading} onClick={handleSubmit}>
             {loading ? 'Собираю план…' : online ? 'Составить план' : 'Открыть базовый плейбук'}
@@ -296,6 +310,7 @@ const styles: Record<string, CSSProperties> = {
   intro:      { marginTop: 8, color: 'var(--text-muted)', fontSize: 14, lineHeight: 1.5 },
   subLabel:   { fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 },
   tagsRow:    { display: 'flex', flexWrap: 'wrap', gap: 8 },
+  input:      { width: '100%', boxSizing: 'border-box', resize: 'none', padding: '10px 12px', borderRadius: 12, border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 14, lineHeight: 1.4, fontFamily: 'inherit', outline: 'none' },
   playbookLink: {
     display: 'block', width: '100%', marginTop: 10,
     background: 'transparent', border: 0, cursor: 'pointer',
