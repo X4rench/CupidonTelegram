@@ -211,9 +211,10 @@ export function RealApproachScreen() {
           {view === 'quick' ? (
             <>
               {sectionLabel('Если времени нет / она уходит')}
-              {scenario.quick?.opener && copyRow(scenario.quick.opener, 'q-op')}
+              {copyRow(scenario.quick?.opener || PLAYBOOK.openers[0], 'q-op')}
               {scenario.quick?.next && <p style={styles.tip}>дальше: {scenario.quick.next}</p>}
-              {scenario.quick?.contact && (<>{sectionLabel('Сразу взять контакт')}{copyRow(scenario.quick.contact, 'q-gc')}</>)}
+              {sectionLabel('Сразу взять контакт')}
+              {copyRow(scenario.quick?.contact || PLAYBOOK.contact[0], 'q-gc')}
             </>
           ) : (
             <>

@@ -213,8 +213,13 @@ export function validateRealApproachResult(raw) {
     .replace(/^\s*(привет[,!]?\s+)?(?:извини(?:те|юсь)?|прости(?:те)?|сорри|сорян|пардон)[^,.!?:-]{0,40}?[,.!?:-]+\s*/i, '$1')
     // мид-фраза: извинение + глагол-помехи (прерываю/мешаю/отвлекаю/беспокою)
     .replace(/[,;\s]*(?<![а-яёА-ЯЁ])(?:извини(?:те|юсь)?|прости(?:те)?|сорри|сорян|пардон)\s*,?\s*(?:что\s+|за\s+)?(?:я\s+)?(?:тебя\s+)?(?:прерыва|меша|отвлека|беспоко|потревож)[а-яёА-ЯЁ]*[\s,-]*/gi, ', ')
+    // превентивная защита «я не маньяк/извращенец/псих/...» — нужда
+    .replace(/[\s,–—-]*(?:я\s+)?не\s+(?:маньяк|извращен|псих|больн|сталкер|стрёмн|опасн|куса)[а-яё]*(?:\s+как(?:ой|ая|ое|ие)(?:[\s-]+(?:то|нибудь))?)?[\s,–—-]*/gi, ', ')
+    .replace(/,\s*,/g, ',')
+    .replace(/([.!?])\s*,/g, '$1')
+    .replace(/\s+([,.!?;:])/g, '$1')
     .replace(/^[\s,.;:!?-]+/, '')
-    .replace(/\s+([,.!?;:])/g, '$1');
+    .replace(/[\s,;:–—-]+$/, '');
   // Длинное тире → дефис; вычищаем артефакты модели (иероглифы, zero-width,
   // мусорные символы — Qwen иногда подмешивает их в слова), схлопываем пробелы.
   const clean = (v, len) => dropNeedyApology(
@@ -237,13 +242,18 @@ export function validateRealApproachResult(raw) {
   };
   const q = isObj(r.quick) ? r.quick : {};
   const br = isObj(r.branches) ? r.branches : {};
+  const branches = { in: branch(br.in), neutral: branch(br.neutral), closed: branch(br.closed) };
+  // quick должен быть ВСЕГДА (юзер может переключиться на «быстро» даже если она
+  // сидит). Если модель оставила пустым — подстрахуемся заходом/контактом из ветки.
+  const qOpener  = clean(q.opener, 300)  || branches.in.openers[0]     || branches.neutral.openers[0]     || '';
+  const qContact = clean(q.contact, 300) || branches.in.get_contact[0] || branches.neutral.get_contact[0] || '';
   return {
     read:        clean(r.read, 400),
     prep:        clean(r.prep, 500),
     eye_contact: clean(r.eye_contact, 400),
     talk:        strList(r.talk, 2, 300),
-    quick:       { opener: clean(q.opener, 300), next: clean(q.next, 300), contact: clean(q.contact, 300) },
-    branches:    { in: branch(br.in), neutral: branch(br.neutral), closed: branch(br.closed) },
+    quick:       { opener: qOpener, next: clean(q.next, 300), contact: qContact },
+    branches,
   };
 }
 
