@@ -204,7 +204,13 @@ export function validateFirstMessageResult(raw) {
 // Дерево-сценарий подхода. Дефолты на случай мусора; длинное тире → дефис.
 export function validateRealApproachResult(raw) {
   const r = isObj(raw) ? raw : {};
-  const clean = (v, len) => safeStr(v, len).replace(/[—–]/g, '-');
+  // Длинное тире → дефис; вычищаем артефакты модели (иероглифы, zero-width,
+  // мусорные символы — Qwen иногда подмешивает их в слова), схлопываем пробелы.
+  const clean = (v, len) => safeStr(v, len)
+    .replace(/[—–]/g, '-')
+    .replace(/[^Ѐ-ӿa-zA-Z0-9\s.,!?:;()«»"'’…\/%-]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
   const strList = (v, n, len = 300) => safeArr(v, n, s => clean(s, len)).filter(Boolean);
   const branch = (b) => {
     const o = isObj(b) ? b : {};
@@ -222,7 +228,7 @@ export function validateRealApproachResult(raw) {
     read:        clean(r.read, 400),
     prep:        clean(r.prep, 500),
     eye_contact: clean(r.eye_contact, 400),
-    quick:       { opener: clean(q.opener, 300), next: clean(q.next, 300) },
+    quick:       { opener: clean(q.opener, 300), next: clean(q.next, 300), contact: clean(q.contact, 300) },
     branches:    { in: branch(br.in), neutral: branch(br.neutral), closed: branch(br.closed) },
   };
 }
