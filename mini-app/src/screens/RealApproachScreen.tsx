@@ -236,7 +236,7 @@ export function RealApproachScreen() {
                   {sectionLabel('4. Что сказать')}
                   {br.openers.map((t, i) => copyRow(t, `op-${branch}-${i}`))}
                   {br.behavior && <p style={styles.tip}>как держаться: {br.behavior}</p>}
-                  {scenario.talk.length > 0 && (<>{sectionLabel('Если завязалось — короткий разговор → потом номер')}{scenario.talk.map((t, i) => copyRow(t, `talk-${i}`))}</>)}
+                  {branch !== 'closed' && scenario.talk.length > 0 && (<>{sectionLabel('Если завязалось — короткий разговор → потом номер')}{scenario.talk.map((t, i) => copyRow(t, `talk-${i}`))}</>)}
                   {br.get_contact.length > 0 && (<>{sectionLabel('Если теплеет — взять контакт')}{br.get_contact.map((t, i) => copyRow(t, `gc-${branch}-${i}`))}</>)}
                   {br.push.length > 0 && (<>{sectionLabel('Если отшивает — дожать (1 раз)')}{br.push.map((t, i) => copyRow(t, `pu-${branch}-${i}`))}</>)}
                   {br.exit.length > 0 && (<>{sectionLabel('Если глухо — выйти достойно')}{br.exit.map((t, i) => copyRow(t, `ex-${branch}-${i}`))}</>)}
