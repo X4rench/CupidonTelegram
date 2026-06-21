@@ -250,14 +250,15 @@ export function validateRealApproachResult(raw) {
   const branches = { in: branch(br.in), neutral: branch(br.neutral), closed: branch(br.closed) };
   // quick должен быть ВСЕГДА (юзер может переключиться на «быстро» даже если она
   // сидит). Если модель оставила пустым — подстрахуемся заходом/контактом из ветки.
-  const qOpener  = clean(q.opener, 300)  || branches.in.openers[0]     || branches.neutral.openers[0]     || '';
+  let qOpeners = strList(q.openers, 2, 300);
+  if (qOpeners.length === 0) qOpeners = [branches.in.openers[0] || branches.neutral.openers[0]].filter(Boolean);
   const qContact = clean(q.contact, 300) || branches.in.get_contact[0] || branches.neutral.get_contact[0] || '';
   return {
     read:        clean(r.read, 400),
     prep:        clean(r.prep, 500),
     eye_contact: clean(r.eye_contact, 400),
     talk:        strList(r.talk, 2, 300),
-    quick:       { opener: qOpener, next: clean(q.next, 300), contact: qContact },
+    quick:       { openers: qOpeners, next: clean(q.next, 300), contact: qContact },
     branches,
   };
 }
