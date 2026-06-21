@@ -362,6 +362,7 @@ export interface RealApproachScenario {
   read: string;
   prep: string;
   eye_contact: string;
+  talk: string[];
   quick: { opener: string; next: string; contact: string };
   branches: { in: RealApproachBranch; neutral: RealApproachBranch; closed: RealApproachBranch };
 }

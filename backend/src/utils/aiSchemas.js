@@ -238,6 +238,7 @@ export function validateRealApproachResult(raw) {
     read:        clean(r.read, 400),
     prep:        clean(r.prep, 500),
     eye_contact: clean(r.eye_contact, 400),
+    talk:        strList(r.talk, 2, 300),
     quick:       { opener: clean(q.opener, 300), next: clean(q.next, 300), contact: clean(q.contact, 300) },
     branches:    { in: branch(br.in), neutral: branch(br.neutral), closed: branch(br.closed) },
   };
