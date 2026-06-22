@@ -10,9 +10,14 @@ import { checkAndIncrementLimit } from '../utils/limits.js';
 import { makeKey, getCached, setCached } from '../services/cache.js';
 import { validateFirstMessageResult } from '../utils/aiSchemas.js';
 import { sanitizeForPrompt } from '../utils/promptSanitize.js';
+import { FIRST_MESSAGE_BANK } from '../db/firstMessageBank.js';
 
 const router = Router();
 const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+// Банк проверенных заходов → текст для промпта (LLM выбирает подходящие под профиль).
+// when — подсказка уместности; вычисляется один раз при старте.
+const BANK_TEXT = FIRST_MESSAGE_BANK.map((o, i) => `${i + 1}. (${o.when}) ${o.text}`).join('\n');
 
 function ensureUser(req) {
   const { user } = upsertUserFromInitData(req.tgUser, req.startParam);
@@ -98,6 +103,7 @@ router.post('/generate', async (req, res) => {
         tags:         safeTags,
         profile_text: safeProfile,
         user_ctx:     buildUserCtx(user_profile),
+        bank:         BANK_TEXT,
       },
       messages: [{ role: 'user', content: 'Сгенерируй РОВНО 9 первых сообщений. Верни массив messages из 9 разных элементов. Ответь ТОЛЬКО чистым JSON без markdown и без пояснений.' }],
     });
