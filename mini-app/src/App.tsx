@@ -44,6 +44,7 @@ import { FirstMessageScreen } from './screens/FirstMessageScreen';
 import { RejectionScreen } from './screens/RejectionScreen';
 import { SupportScreen } from './screens/SupportScreen';
 import { RealApproachScreen } from './screens/RealApproachScreen';
+import { DateScreen } from './screens/DateScreen';
 
 // Phase H
 import { PaywallScreen } from './screens/PaywallScreen';
@@ -92,6 +93,7 @@ export default function App() {
             <Route path="/rejection"            element={<RejectionScreen />} />
             <Route path="/support"              element={<SupportScreen />} />
             <Route path="/real-approach"        element={<RealApproachScreen />} />
+            <Route path="/date"                 element={<DateScreen />} />
             <Route path="/community"            element={<CommunityScreen />} />
             <Route path="/post/:slug"           element={<PostDetailScreen />} />
             <Route path="/tutorial"             element={<TutorialScreen />} />

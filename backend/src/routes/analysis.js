@@ -19,6 +19,7 @@ import {
   validateRejectionResult,
   validateSupportResult,
   validateRealApproachResult,
+  validateDateCoachResult,
   validateQuickReplyResult,
   validateRebootResult,
   validateDateInviteResult,
@@ -186,6 +187,18 @@ const REAL_GOAL_HINTS = {
 function buildRealGoalHint(goal) {
   if (typeof goal !== 'string') return '';
   return REAL_GOAL_HINTS[goal.trim().toLowerCase()] || '';
+}
+
+// ── Цель свидания (режим «Свидание») → вес акцентов и темп ───────────────────
+const DATE_GOAL_HINTS = {
+  'отношения':        'ЦЕЛЬ: отношения — самый спокойный/глубокий темп; ставка на взаимное раскрытие, тепло, надёжность; ценности/будущее уместны, но дозированно и взаимно.',
+  'флирт':            'ЦЕЛЬ: флирт — легче и игривее, лёгкая эскалация СТРОГО по её сигналам; «ты мне нравишься» без обещаний отношений; не грузить глубиной.',
+  'общение':          'ЦЕЛЬ: просто узнать друг друга — минимум давления и романтической повестки, максимум любопытства и слушания; эскалации почти нет; спокойный уход — норма.',
+  'без обязательств': 'ЦЕЛЬ: без обязательств — ЧЕСТНОСТЬ намерений обязательна (назови рамку прямо, чтобы она осознанно согласилась); разговор про ожидания и согласие; темп ведут ТОЛЬКО её явные взаимные сигналы, при любом «нет/пауза» — немедленный откат.',
+};
+function buildDateGoalHint(goal) {
+  if (typeof goal !== 'string') return '';
+  return DATE_GOAL_HINTS[goal.trim().toLowerCase()] || '';
 }
 
 // Гарантия контраста подачи: модель любит дробить ВСЕ ответы на 2-3 пузыря.
@@ -802,6 +815,46 @@ router.post('/real-approach', async (req, res) => {
   } catch (err) {
     logAICall({ endpoint: '/analysis/real-approach', model: prompt.model, duration: Date.now() - t0, error: err.message });
     console.error('[real-approach]', err.message);
+    res.status(500).json({ ok: false, error: 'Ошибка генерации. Попробуй ещё раз.' });
+  }
+});
+
+// ── POST /api/v1/analysis/date-coach (свидание: как себя вести) ───────────────
+router.post('/date-coach', async (req, res) => {
+  const { goal, stage, format, budget, details, user_profile } = req.body || {};
+  const pick = (v, len = 60) => (typeof v === 'string' && v.trim()) ? sanitizeForPrompt(v.trim(), len) : '';
+  const parts = [];
+  parts.push(`Стадия: ${pick(stage) || 'планирую свидание'}`);
+  if (pick(format))       parts.push(`Формат/место: ${pick(format)}`);
+  if (pick(budget))       parts.push(`Бюджет: ${pick(budget)}`);
+  if (pick(details, 200)) parts.push(`Про неё / контекст (словами от него): ${pick(details, 200)}`);
+  const context = parts.join('. ') + '.';
+
+  const user = ensureUser(req);
+  if (!checkAndIncrementLimit(user, res, 'date_coach')) return;
+
+  const prompt = getPrompt('date_coach');
+  if (!prompt) return res.status(500).json({ ok: false, error: `Промпт 'date_coach' не найден` });
+
+  const t0 = Date.now();
+  try {
+    const { content, usage, model } = await callAI({
+      model:       prompt.model,
+      temperature: prompt.temperature,
+      max_tokens:  Math.max(prompt.max_tokens, 1600),
+      reasoning:   'off',
+      systemPrompt: prompt.system_prompt,
+      variables: { context, goal_hint: buildDateGoalHint(goal), user_ctx: buildUserCtx(user_profile) },
+      messages: [{ role: 'user', content: `Контекст выше. Дай персональный план под цель и стадию. Ответь ТОЛЬКО чистым JSON по схеме.` }],
+    });
+    logAICall({ endpoint: '/analysis/date-coach', model, tokens: usage?.total_tokens, duration: Date.now() - t0 });
+    let parsed;
+    try { parsed = parseAIJson(content); } catch (_) { parsed = null; }
+    const plan = validateDateCoachResult(parsed);
+    res.json({ ok: true, plan });
+  } catch (err) {
+    logAICall({ endpoint: '/analysis/date-coach', model: prompt.model, duration: Date.now() - t0, error: err.message });
+    console.error('[date-coach]', err.message);
     res.status(500).json({ ok: false, error: 'Ошибка генерации. Попробуй ещё раз.' });
   }
 });

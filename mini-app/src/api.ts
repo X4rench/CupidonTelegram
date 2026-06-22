@@ -395,6 +395,42 @@ export async function generateRealApproach(payload: {
   });
 }
 
+// ── Свидание (как себя вести) ────────────────────────────────────────────────
+export interface DatePlan {
+  read: string;
+  mindset: string[];
+  outfit: string[];
+  topics: string[];
+  questions: string[];
+  avoid: string[];
+  logistics: string[];
+  escalation: string;
+  debrief: string[];
+  next_steps: string[];
+}
+
+/** Персональный план поведения на свидании под цель и стадию. */
+export async function generateDatePlan(payload: {
+  goal?: string | null;
+  stage?: string | null;
+  format?: string | null;
+  budget?: string | null;
+  details?: string | null;
+  user_profile?: UserProfile | null;
+}): Promise<{ ok: boolean; plan: DatePlan }> {
+  return fetchAuthed('/analysis/date-coach', {
+    method: 'POST',
+    body: JSON.stringify({
+      goal: payload.goal ?? null,
+      stage: payload.stage ?? null,
+      format: payload.format ?? null,
+      budget: payload.budget ?? null,
+      details: payload.details ?? null,
+      user_profile: payload.user_profile ?? null,
+    }),
+  });
+}
+
 // ── Contacts API ─────────────────────────────────────────────────────────────
 
 export interface Contact {

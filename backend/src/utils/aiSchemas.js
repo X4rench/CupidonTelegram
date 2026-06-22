@@ -267,6 +267,31 @@ export function validateRealApproachResult(raw) {
   };
 }
 
+// ─── /analysis/date-coach (свидание: как себя вести) ───────────────────────────
+// Совет/план (не реплики), поэтому только базовая чистка: тире→дефис, артефакты,
+// схлоп пробелов. Стадия-условные поля приходят пустыми массивами — это норма.
+export function validateDateCoachResult(raw) {
+  const r = isObj(raw) ? raw : {};
+  const clean = (v, len) => safeStr(v, len)
+    .replace(/[—–]/g, '-')
+    .replace(/[^Ѐ-ӿa-zA-Z0-9\s.,!?:;()«»"'’…\/%-]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  const strList = (v, n, len = 300) => safeArr(v, n, s => clean(s, len)).filter(Boolean);
+  return {
+    read:       clean(r.read, 400),
+    mindset:    strList(r.mindset, 3, 300),
+    outfit:     strList(r.outfit, 4, 300),
+    topics:     strList(r.topics, 4, 300),
+    questions:  strList(r.questions, 5, 300),
+    avoid:      strList(r.avoid, 5, 300),
+    logistics:  strList(r.logistics, 4, 300),
+    escalation: clean(r.escalation, 400),
+    debrief:    strList(r.debrief, 4, 300),
+    next_steps: strList(r.next_steps, 3, 300),
+  };
+}
+
 // ─── /simulator/finish ───────────────────────────────────────────────────────
 export function validateSimulatorResult(raw) {
   if (!isObj(raw)) {

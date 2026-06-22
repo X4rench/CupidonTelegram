@@ -59,6 +59,11 @@ const quickActions: QuickAction[] = [
     icon: <><circle cx={12} cy={12} r={3.5} /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></>,
   },
   {
+    key: 'date', name: 'Свидание', to: '/date',
+    iconColor: '#F59E0B', bg: 'rgba(245,158,11,0.1)',
+    icon: <><rect x={3} y={4} width={18} height={18} rx={2} /><path d="M16 2v4M8 2v4M3 10h18" /></>,
+  },
+  {
     key: 'create-girl', name: 'Своя\nдевушка', to: '/create-girl',
     iconColor: '#EC4899', bg: 'rgba(236,72,153,0.1)',
     icon: <><circle cx={12} cy={8} r={4} /><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" /></>,
