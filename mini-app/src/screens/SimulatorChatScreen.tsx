@@ -154,10 +154,11 @@ export function SimulatorChatScreen() {
     setHintsOpen(true);
     if (hints.length > 0 && messages.length === hintsMsgCount) return;
     if (!sessionId || messages.length === 0) {
+      // Пустой чат → универсальные ПЕРВЫЕ заходы (не «продолжай» — продолжать нечего)
       setHints([
-        { type: 'юмор', text: 'Звучит как начало детективной истории, продолжай' },
-        { type: 'переход', text: 'А ты как вообще проводишь свободное время?' },
-        { type: 'интерес', text: 'А что тебе в этом нравится больше всего?' },
+        { type: 'заход', text: 'привет) сразу честно - мимо твоей анкеты пройти не смог. чем по жизни занимаешься?' },
+        { type: 'игра', text: 'давай угадаю - ты из тех, кто отвечает не сразу, для интриги?)' },
+        { type: 'интерес', text: 'ты тут серьёзно настроена или просто листаешь красивые анкеты?)' },
       ]);
       setHintsMsgCount(messages.length);
       return;
@@ -294,7 +295,7 @@ export function SimulatorChatScreen() {
 
       {/* Hints sheet */}
       {hintsOpen && (
-        <BottomSheet title="Подсказки" subtitle="Тапни вариант — он подставится в инпут" onClose={() => setHintsOpen(false)}>
+        <BottomSheet title="Подсказки" subtitle="Тапни вариант — он подставится в инпут" onClose={() => { setHintsOpen(false); setTimeout(() => inputRef.current?.focus(), 0); }}>
           {hintsLoading ? (
             <LoadingDots text="Подбираю варианты" />
           ) : hints.length === 0 ? (
@@ -317,7 +318,7 @@ export function SimulatorChatScreen() {
         <BottomSheet
           title="Промежуточный разбор"
           subtitle={`По ${messages.length} сообщениям`}
-          onClose={() => setAnalysisOpen(false)}
+          onClose={() => { setAnalysisOpen(false); setTimeout(() => inputRef.current?.focus(), 0); }}
         >
           {analysisLoading ? (
             <LoadingDots text="Анализирую диалог" />
