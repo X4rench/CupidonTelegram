@@ -12,6 +12,7 @@ import db, { upsertUserFromInitData } from '../db/index.js';
 import { callAI, parseAIJson } from '../services/polza.js';
 import { logAICall } from '../middleware/logger.js';
 import { checkAndIncrementLimit } from '../utils/limits.js';
+import { requireAdminTg } from '../middleware/auth.js';
 import { makeKey, getCached, setCached } from '../services/cache.js';
 import { typazhNameFor, typazhDescFor } from '../utils/typazhes.js';
 import {
@@ -777,7 +778,7 @@ router.get('/history', (req, res) => {
 
 // ── POST /api/v1/analysis/real-approach ──────────────────────────────────────
 // Реальное знакомство: по чипсам-ситуации → адаптивный сценарий подхода (дерево).
-router.post('/real-approach', async (req, res) => {
+router.post('/real-approach', requireAdminTg, async (req, res) => {
   const { where, company, doing, position, vibe, eye_contact, goal, details, user_profile } = req.body || {};
   const pick = (v, len = 60) => (typeof v === 'string' && v.trim()) ? sanitizeForPrompt(v.trim(), len) : '';
   const parts = [];
@@ -820,7 +821,7 @@ router.post('/real-approach', async (req, res) => {
 });
 
 // ── POST /api/v1/analysis/date-coach (свидание: как себя вести) ───────────────
-router.post('/date-coach', async (req, res) => {
+router.post('/date-coach', requireAdminTg, async (req, res) => {
   const { goal, stage, format, budget, details, user_profile } = req.body || {};
   const pick = (v, len = 60) => (typeof v === 'string' && v.trim()) ? sanitizeForPrompt(v.trim(), len) : '';
   const parts = [];

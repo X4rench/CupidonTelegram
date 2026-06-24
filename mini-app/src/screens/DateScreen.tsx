@@ -47,6 +47,8 @@ export function DateScreen() {
   const nav = useNavigate();
   useBackButton(() => nav(-1));
   const { me } = useMe();
+  // Режим только для админов — не-админов уводим на главную (карточка и так скрыта)
+  useEffect(() => { if (me && !me.is_admin) nav('/', { replace: true }); }, [me, nav]);
 
   const [goal, setGoal] = useState('отношения');
   const [stage, setStage] = useState('планирую');

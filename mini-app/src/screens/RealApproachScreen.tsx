@@ -71,6 +71,8 @@ export function RealApproachScreen() {
   const nav = useNavigate();
   useBackButton(() => nav(-1));
   const { me } = useMe();
+  // Режим только для админов — не-админов уводим на главную (карточка и так скрыта)
+  useEffect(() => { if (me && !me.is_admin) nav('/', { replace: true }); }, [me, nav]);
 
   const [where, setWhere] = useState('');
   const [company, setCompany] = useState('');

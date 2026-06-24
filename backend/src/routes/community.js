@@ -70,20 +70,23 @@ router.post('/submit', (req, res) => {
   }
 
   const tgId = req.tgUser.id;
+  const isAdmin = getAdminIds().includes(tgId);
 
-  // Лимит постов на день
-  const today = todayUTC();
-  const todayCount = db.get(
-    `SELECT COUNT(*) as c FROM community_posts
-      WHERE telegram_user_id = ? AND created_at LIKE ?`,
-    tgId, `${today}%`,
-  ).c;
-  if (todayCount >= DAILY_POST_LIMIT) {
-    return res.status(429).json({
-      ok: false,
-      code: 'POST_LIMIT_EXCEEDED',
-      error: 'Ты уже опубликовал пост сегодня. Можно один в день.',
-    });
+  // Лимит постов на день (админы — без лимита: они наполняют ленту)
+  if (!isAdmin) {
+    const today = todayUTC();
+    const todayCount = db.get(
+      `SELECT COUNT(*) as c FROM community_posts
+        WHERE telegram_user_id = ? AND created_at LIKE ?`,
+      tgId, `${today}%`,
+    ).c;
+    if (todayCount >= DAILY_POST_LIMIT) {
+      return res.status(429).json({
+        ok: false,
+        code: 'POST_LIMIT_EXCEEDED',
+        error: 'Ты уже опубликовал пост сегодня. Можно один в день.',
+      });
+    }
   }
 
   const messagesJson = safeStringify(messages, MAX_MESSAGES_BYTES);
@@ -97,18 +100,25 @@ router.post('/submit', (req, res) => {
   const safeScore    = Number.isFinite(+score) ? Math.max(0, Math.min(100, Math.round(+score))) : null;
   const authorName   = authorNameFromReq(req);
 
+  // Админ-посты публикуются сразу (наполнение ленты), остальные — на модерацию
+  const status = isAdmin ? 'approved' : 'pending';
   const result = db.run(
     `INSERT INTO community_posts
        (telegram_user_id, author_name, girl_name, typazh, messages, analysis, score, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
-    tgId, authorName, safeGirlName, safeTypazh, messagesJson, analysisJson, safeScore,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    tgId, authorName, safeGirlName, safeTypazh, messagesJson, analysisJson, safeScore, status,
   );
+  if (isAdmin) {
+    db.run(`UPDATE community_posts SET approved_at = datetime('now'), reviewed_by = ? WHERE id = ?`, tgId, result.lastInsertRowid);
+  }
 
   res.json({
     ok: true,
     post_id: result.lastInsertRowid,
-    status: 'pending',
-    message: 'Пост отправлен на модерацию. Появится в ленте после одобрения.',
+    status,
+    message: isAdmin
+      ? 'Опубликовано в ленте.'
+      : 'Пост отправлен на модерацию. Появится в ленте после одобрения.',
   });
 });
 

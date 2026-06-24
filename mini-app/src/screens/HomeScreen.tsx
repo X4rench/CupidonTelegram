@@ -219,7 +219,9 @@ export function HomeScreen() {
         <section style={styles.section}>
           <SectionHeader title="Инструменты" />
           <div style={styles.qaScroll}>
-            {quickActions.map(qa => (
+            {quickActions
+              .filter(qa => me?.is_admin || (qa.key !== 'date' && qa.key !== 'real-approach'))
+              .map(qa => (
               <button
                 key={qa.key}
                 onClick={() => { impactHaptic('light'); nav(qa.to); }}
