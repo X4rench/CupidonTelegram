@@ -128,6 +128,7 @@ router.get('/feed', (req, res) => {
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
 
   const tgId = req.tgUser.id;
+  const isAdmin = getAdminIds().includes(tgId);
   const posts = db.all(
     `SELECT p.id, p.author_name, p.girl_name, p.typazh, p.score, p.likes_count,
             p.created_at, p.messages, p.analysis,
@@ -140,9 +141,10 @@ router.get('/feed', (req, res) => {
   ).map(p => {
     const msgs = safeParse(p.messages, []);
     // В feed возвращаем preview: первые 3 сообщения. Полный — в /posts/:id
+    // Автора (имя/кружок) видят только админы — обычным юзерам не отдаём.
     return {
       id: p.id,
-      author_name: p.author_name,
+      author_name: isAdmin ? p.author_name : null,
       girl_name: p.girl_name,
       typazh: p.typazh,
       score: p.score,
@@ -164,6 +166,7 @@ router.get('/posts/:id', (req, res) => {
   if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: 'Неверный id' });
 
   const tgId = req.tgUser.id;
+  const isAdmin = getAdminIds().includes(tgId);
   const p = db.get(
     `SELECT p.*,
             EXISTS(SELECT 1 FROM community_post_likes WHERE post_id = p.id AND telegram_user_id = ?) AS liked
@@ -177,7 +180,7 @@ router.get('/posts/:id', (req, res) => {
     ok: true,
     post: {
       id: p.id,
-      author_name: p.author_name,
+      author_name: isAdmin ? p.author_name : null,
       girl_name: p.girl_name,
       typazh: p.typazh,
       score: p.score,
@@ -289,6 +292,69 @@ adminRouter.post('/:id/reject', (req, res) => {
       WHERE id = ?`,
     reason, req.tgUser?.id || null, id,
   );
+  res.json({ ok: true });
+});
+
+// POST /admin/community/:id/edit — редактирование поста админом
+// Принимает любые из полей: girl_name, typazh, score, messages, analysis.
+// Обновляются только переданные (partial update).
+adminRouter.post('/:id/edit', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: 'Неверный id' });
+  const exists = db.get(`SELECT id FROM community_posts WHERE id = ?`, id);
+  if (!exists) return res.status(404).json({ ok: false, error: 'Пост не найден' });
+
+  const { girl_name, typazh, score, messages, analysis } = req.body || {};
+  const sets = [];
+  const args = [];
+
+  if (girl_name !== undefined) {
+    sets.push('girl_name = ?');
+    args.push(girl_name ? String(girl_name).trim().slice(0, 32) : null);
+  }
+  if (typazh !== undefined) {
+    const t = String(typazh).trim().slice(0, 64);
+    if (!t) return res.status(400).json({ ok: false, error: 'Типаж не может быть пустым' });
+    sets.push('typazh = ?');
+    args.push(t);
+  }
+  if (score !== undefined) {
+    const s = Number.isFinite(+score) ? Math.max(0, Math.min(100, Math.round(+score))) : null;
+    sets.push('score = ?');
+    args.push(s);
+  }
+  if (messages !== undefined) {
+    if (!Array.isArray(messages) || messages.length < 1) {
+      return res.status(400).json({ ok: false, error: 'Диалог не может быть пустым' });
+    }
+    const mj = safeStringify(messages, MAX_MESSAGES_BYTES);
+    if (!mj) return res.status(400).json({ ok: false, error: 'Слишком много данных в диалоге' });
+    sets.push('messages = ?');
+    args.push(mj);
+  }
+  if (analysis !== undefined) {
+    const aj = analysis ? safeStringify(analysis, MAX_ANALYSIS_BYTES) : null;
+    if (analysis && !aj) return res.status(400).json({ ok: false, error: 'Слишком большой разбор' });
+    sets.push('analysis = ?');
+    args.push(aj);
+  }
+
+  if (!sets.length) return res.json({ ok: true, unchanged: true });
+
+  args.push(id);
+  db.run(`UPDATE community_posts SET ${sets.join(', ')} WHERE id = ?`, ...args);
+  res.json({ ok: true });
+});
+
+// DELETE /admin/community/:id — удаление поста админом (вместе с лайками)
+adminRouter.delete('/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: 'Неверный id' });
+  const exists = db.get(`SELECT id FROM community_posts WHERE id = ?`, id);
+  if (!exists) return res.status(404).json({ ok: false, error: 'Пост не найден' });
+
+  db.run(`DELETE FROM community_post_likes WHERE post_id = ?`, id);
+  db.run(`DELETE FROM community_posts WHERE id = ?`, id);
   res.json({ ok: true });
 });
 

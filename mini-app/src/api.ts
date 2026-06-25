@@ -1074,7 +1074,8 @@ export interface CommunityMsg { from: 'me' | 'her'; text: string }
 
 export interface CommunityFeedPost {
   id: number;
-  author_name: string;
+  author_name: string | null; // null для не-админов — автора видят только админы
+
   girl_name: string | null;
   typazh: string;
   score: number | null;
@@ -1139,4 +1140,16 @@ export const communityAdminApi = {
     fetchAuthed<{ ok: boolean }>(`/admin/community/${id}/reject`, {
       method: 'POST', body: JSON.stringify({ reason }),
     }),
+  edit: (id: number, payload: {
+    girl_name?: string | null;
+    typazh?: string;
+    score?: number | null;
+    messages?: CommunityMsg[];
+    analysis?: any;
+  }) =>
+    fetchAuthed<{ ok: boolean; error?: string }>(`/admin/community/${id}/edit`, {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
+  remove: (id: number) =>
+    fetchAuthed<{ ok: boolean; error?: string }>(`/admin/community/${id}`, { method: 'DELETE' }),
 };
