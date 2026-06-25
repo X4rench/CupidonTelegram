@@ -13,7 +13,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import App from './App';
-import { initTelegram, hasInitData, getInitDataRaw } from './auth';
+import { initTelegram, hasInitData } from './auth';
 import { Landing } from './screens/Landing';
 import { PrivacyScreen } from './screens/PrivacyScreen';
 import { TermsScreen } from './screens/TermsScreen';
@@ -53,29 +53,14 @@ stageBeacon('react_root_created');
     stageBeacon('init_tg_failed', { err: String(err?.message || err).slice(0, 100) });
   }
 
-  // ЧИСТЫЙ ДОМЕН (cupidonapp.ru) — вход в Mini App ТОЛЬКО для Telegram.
-  // Не-Telegram трафик (краулеры Safe Browsing, случайные посетители) уводим
-  // в бота, чтобы на новом домене НЕ светился платёжный лендинг — иначе он
-  // со временем попадёт под тот же фрод-флаг, что cupidonai.ru.
-  //
-  // ВАЖНО: определяем Telegram НАДЁЖНО — по самому initData / platform / хэшу,
-  // а НЕ по hasInitData() (она требует распарсенного user.id, который на iOS
-  // иногда пустой при наличии initData → ложный редирект → петля «не
-  // открывается» прямо внутри Telegram). Любой из сигналов = это Telegram,
-  // редирект НЕ делаем.
-  const __tgwa = (window as any)?.Telegram?.WebApp;
-  const __inTelegram = !!(
-    (__tgwa && typeof __tgwa.initData === 'string' && __tgwa.initData.length > 0) ||
-    (__tgwa && __tgwa.platform && __tgwa.platform !== 'unknown') ||
-    (window.location.hash || '').includes('tgWebApp') ||
-    getInitDataRaw()
-  );
-  if (window.location.hostname.endsWith('cupidonapp.ru') && !__inTelegram) {
-    stageBeacon('clean_host_bounce');
-    window.location.replace('https://t.me/Cupidon_Ai_Bot/app');
-    return;
-  }
-
+  // Не-Telegram трафик (обычный браузер, краулер Google Safe Browsing) НЕ
+  // редиректим в бота. Раньше тут был window.location.replace → t.me, но
+  // «пустая страница + мгновенный редирект на мессенджер» — классический
+  // фрод-сигнал для Safe Browsing: ровно из-за него домен попадал в список
+  // «мошеннических», и каждый НОВЫЙ домен — снова (на нём тот же редирект).
+  // Вместо этого отдаём нормальный публичный лендинг (ветка !hasInitData
+  // ниже): описание сервиса, юр-данные, ссылки на /privacy и /terms — это
+  // легит-сигнал, который снимает подозрение классификатора.
   if (!hasInitData()) {
     // Публичный режим — Landing + legal-страницы. Доступны через прямые URL
     // без авторизации в TG: https://cupidonai.ru/privacy и /terms.
