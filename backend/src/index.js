@@ -35,6 +35,8 @@ import yookassaRouter     from './routes/yookassa.js'; // /yookassa/webhook
 import { startCleanupSchedule } from './utils/logCleanup.js';
 // YooKassa reconciliation (catches webhooks that didn't reach us)
 import { startReconciliation } from './utils/reconcile.js';
+// Telegram long-polling (альтернатива webhook, когда внешний релей недоступен)
+import { startPolling } from './services/bot-poller.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
@@ -220,6 +222,12 @@ app.listen(PORT, () => {
   startCleanupSchedule();
   // YooKassa reconciliation (no-op если YK_SHOP_ID/YK_SECRET_KEY не заданы)
   startReconciliation();
+  // Telegram long-polling — если TG_POLLING=1. Бэкенд сам тянет апдейты у TG
+  // (исходящие из Москвы работают), внешний webhook-релей не нужен.
+  if (process.env.TG_POLLING === '1') {
+    console.log('[poll] TG_POLLING=1 — запускаю long polling');
+    startPolling().catch(e => console.error('[poll] fatal:', e.message));
+  }
 });
 
 export default app;

@@ -72,15 +72,7 @@ router.post('/webhook', async (req, res) => {
   // TG будет ретраить, и у нас может получиться дублированная активация.
   // Поэтому ловим любую ошибку и всё равно возвращаем 200.
   try {
-    if (update.pre_checkout_query) {
-      await handlePreCheckout(update.pre_checkout_query);
-    } else if (update.message?.successful_payment) {
-      await handleSuccessfulPayment(update.message);
-    } else if (update.message?.text) {
-      await handleMessage(update.message);
-    }
-    // my_chat_member, channel_post, edited_message — игнорим (allowed_updates
-    // в setWebhook уже отфильтровывает большинство).
+    await processUpdate(update);
   } catch (err) {
     console.error('[telegram/webhook] handler error:', err.message);
     // Не пробрасываем — иначе TG ретраит и можем продублировать платёж.
@@ -88,6 +80,22 @@ router.post('/webhook', async (req, res) => {
 
   res.json({ ok: true });
 });
+
+/**
+ * Роутинг одного Telegram update в нужный хендлер. Общая точка обработки —
+ * используется и webhook-роутом (выше), и long-poll поллером
+ * (src/services/bot-poller.js), когда внешний webhook-релей недоступен.
+ */
+export async function processUpdate(update) {
+  if (update.pre_checkout_query) {
+    await handlePreCheckout(update.pre_checkout_query);
+  } else if (update.message?.successful_payment) {
+    await handleSuccessfulPayment(update.message);
+  } else if (update.message?.text) {
+    await handleMessage(update.message);
+  }
+  // my_chat_member, channel_post, edited_message — игнорим.
+}
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
